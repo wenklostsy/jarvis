@@ -1,5 +1,21 @@
 # J.A.R.V.I.S.
 
+> **Estado desta instalação — 23 de setembro de 2026**
+>
+> Esta base é um fork do projeto abaixo, adaptado para Windows e português brasileiro.
+> A configuração local auditada usa **Ollama**, com Gemini, OpenAI e Claude como alternativas.
+> O texto original mantido a seguir descreve principalmente a arquitetura com Claude;
+> suas integrações MCP não ficam automaticamente disponíveis no modo Ollama.
+>
+> - [Relatório do estado real e problemas encontrados](docs/ESTADO_ATUAL.md)
+> - [Roadmap e próxima etapa proposta](docs/ROADMAP.md)
+> - [Componentes de terceiros e atribuições](docs/ORIGEM_E_LICENCAS.md)
+> - [Preparação Python e Supabase documentada separadamente](docs/BASE_PYTHON_SEPARADA.md)
+> - [Execução no Windows](CHATGPT-SETUP.md) e [comandos implementados](COMANDOS.md)
+>
+> **Desenvolvimento estrutural aguardando aprovação.** A auditoria não alterou credenciais,
+> não instalou programas, não publicou código e não substituiu a arquitetura existente.
+
 A browser voice assistant with an Iron Man holographic interface. Say
 **"Hey Jarvis"**, he wakes, listens, and does real things through your tools —
 searches the web, generates images, drives your phone, reads your mail. The face
