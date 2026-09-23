@@ -17,9 +17,14 @@
 
 import { WebSocketServer } from 'ws'
 import { query } from '@anthropic-ai/claude-agent-sdk'
+import { openaiConnection } from './openai.mjs'
+import { geminiConnection } from './gemini.mjs'
+import { ollamaConnection } from './ollama.mjs'
 import { displayServer } from './panels.mjs'
 import { uiServer } from './ui.mjs'
-import { chromeAvailable, chromeServer } from './chrome.mjs'
+const { chromeAvailable, chromeServer } = ['openai', 'gemini', 'ollama'].includes(process.env.JARVIS_BRAIN)
+  ? { chromeAvailable: async () => false, chromeServer: () => null }
+  : await import('./chrome.mjs')
 import { visionServer } from './vision.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { readFileSync, realpathSync } from 'node:fs'
@@ -290,7 +295,8 @@ function decideTool(name) {
   return ALLOW_WRITES
 }
 
-const SYSTEM_PROMPT = `You are JARVIS. You are speaking out loud to one person.
+const SYSTEM_PROMPT = `You are JARVIS, Matheus Ribeiro's personal assistant. You are speaking out loud to Matheus.
+Address the user as "Matheus" naturally; use "Matheus Ribeiro" when a full name is appropriate.
 
 LENGTH. Two sentences is the ceiling in conversation; the median is under twelve
 words. Every word is read aloud and the user waits in silence while it plays, so
@@ -308,7 +314,7 @@ immediately, critical, urgent, or danger. You do not use exclamation marks.
 - Final ("The render is complete, sir") = routine deference; they asked, you answered.
 - Mid-sentence ("Actually, sir, the figure is lower") = you are correcting them.
 Use it in roughly half your lines, never twice in one line. In a two-sentence
-turn it attaches to the end of the FIRST sentence. Never use their name.
+turn it attaches to the end of the FIRST sentence. You may use "Matheus" instead when it sounds natural.
 
 REPORTING.
 - Success is impersonal and unframed: "The render is complete." Never "I've
@@ -1004,8 +1010,8 @@ console.log(`[jarvis] bridge listening on ws://localhost:${PORT}`)
 console.log(
   `[jarvis] speech ${elevenKey() ? 'via ElevenLabs (key from MCP config)' : 'using browser fallback voice'}`,
 )
-console.log(`[jarvis] model ${MODEL} · effort ${EFFORT}`)
-console.log(
+console.log(`[jarvis] brain ${process.env.JARVIS_BRAIN || 'claude'} · model ${process.env.JARVIS_BRAIN === 'ollama' ? process.env.JARVIS_LOCAL_MODEL || 'qwen3.5:4b' : MODEL}`)
+if (!['openai', 'gemini', 'ollama'].includes(process.env.JARVIS_BRAIN)) console.log(
   `[jarvis] writes ${ALLOW_WRITES ? 'ENABLED' : 'disabled'}` +
     (ALLOW_WRITES ? '' : ' — set JARVIS_ALLOW_WRITES=1 to permit shell/file/device actions'),
 )
@@ -1013,7 +1019,7 @@ console.log(
 // at all because an extension that is simply not running is indistinguishable
 // at the tool boundary from one that is broken, and this is the one place the
 // difference can be stated before anybody asks a question that depends on it.
-void chromeAvailable().then((ok) => {
+if (!['openai', 'gemini', 'ollama'].includes(process.env.JARVIS_BRAIN)) void chromeAvailable().then((ok) => {
   console.log(
     ok
       ? `[jarvis] browser control ready${ALLOW_WRITES ? '' : ' (reading only — clicking and typing need JARVIS_ALLOW_WRITES=1)'}`
@@ -1040,6 +1046,18 @@ const RESULT_FAILURES = {
 }
 
 wss.on('connection', (socket) => {
+  if (process.env.JARVIS_BRAIN === 'ollama') {
+    ollamaConnection(socket)
+    return
+  }
+  if (process.env.JARVIS_BRAIN === 'gemini') {
+    geminiConnection(socket)
+    return
+  }
+  if (process.env.JARVIS_BRAIN === 'openai') {
+    openaiConnection(socket, SYSTEM_PROMPT)
+    return
+  }
   console.log('[jarvis] client connected')
 
   // Answer the HUD straight away rather than making it wait for the agent's

@@ -41,11 +41,11 @@ const ACKNOWLEDGE = [
 
 /** Answering to his name, before the user has said what they want. */
 const ATTENTION = [
-  'Yes, sir?',
-  'Sir?',
-  'At your service, sir.',
-  'Standing by.',
-  'Awake, sir.',
+  'Sim?',
+  'Pois não?',
+  'Às suas ordens.',
+  'Estou ouvindo.',
+  'Pode falar.',
 ]
 
 /**

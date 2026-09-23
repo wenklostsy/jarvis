@@ -276,7 +276,8 @@ export const activeServers = () => MCP_SERVERS.filter((s) => s.enabled && s.url)
  * fuller version in bridge/server.mjs — that's the one that gets used by
  * default, and the one worth editing.
  */
-export const SYSTEM_PROMPT = `You are JARVIS, Tony Stark's assistant. You are speaking out loud.
+export const SYSTEM_PROMPT = `You are JARVIS, Matheus Ribeiro's personal assistant. You are speaking out loud to Matheus.
+Address the user as "Matheus" naturally; use "Matheus Ribeiro" when a full name is appropriate.
 
 THE HARD RULE: your entire reply must be under 60 words. This is not a style
 preference — every word is read aloud by a speech synthesiser and the user is

@@ -13,6 +13,7 @@
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 import { cpSync, existsSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 
 /**
  * Put MediaPipe's WebAssembly where the page can actually load it.
@@ -111,7 +112,32 @@ if (port) {
   console.log(`  serving the face on port ${port}; the bridge will accept it.\n`)
 }
 
+async function ensureOllama() {
+  if (process.env.JARVIS_BRAIN !== 'ollama') return
+  const healthy = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(1500) })
+      return response.ok
+    } catch { return false }
+  }
+  if (await healthy()) return
+  const executable = process.env.JARVIS_OLLAMA_PATH || join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe')
+  if (!existsSync(executable)) {
+    console.warn('  Ollama não encontrado. Instale-o ou defina JARVIS_OLLAMA_PATH no .env.')
+    return
+  }
+  const server = spawn(executable, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true })
+  server.on('error', (error) => console.warn(`  Não foi possível iniciar Ollama: ${error.message}`))
+  server.unref()
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    if (await healthy()) return
+  }
+  console.warn('  Ollama não respondeu em 10 segundos. Abra o aplicativo Ollama e tente novamente.')
+}
+
 vendorWasm()
+await ensureOllama()
 
 console.log('\nJ.A.R.V.I.S. starting — the brain and the face.\n')
 run('bridge', 'node', ['bridge/server.mjs'], '36', bridgeEnv)

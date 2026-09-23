@@ -114,6 +114,11 @@ export function watchConnection(fn: (state: ConnectionState) => void) {
   onConnection = fn
 }
 
+let onTimer: ((message: string) => void) | null = null
+export function watchTimer(fn: (message: string) => void) {
+  onTimer = fn
+}
+
 export function isConnected(): boolean {
   return socket?.readyState === WebSocket.OPEN
 }
@@ -207,6 +212,8 @@ function dispatch(ws: WebSocket) {
       // A `ui` frame with no args is normal — reset and clear take none — so an
       // absent args object is an empty one, not a reason to drop the command.
       onUi?.(msg.op, (msg.args ?? {}) as Record<string, unknown>)
+    } else if (msg.type === 'timer' && msg.message) {
+      onTimer?.(msg.message)
     }
   })
 }

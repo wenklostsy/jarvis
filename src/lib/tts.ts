@@ -147,7 +147,7 @@ export function speakingNow(): string {
 const SENTENCE_END = /([.!?]["'')\]”’]?\s)|(\n\n)/
 
 /** Full stops that are not sentence ends. Cutting on these puts an audible
- *  gap inside "Mr. Stark" and reads as a stutter. */
+ *  gap inside "Mr. Matheus Ribeiro" and reads as a stutter. */
 const ABBREVIATION =
   /(?:^|\s)(mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|e\.g|i\.e|approx|inc|ltd|co|no|vol|fig|dept|est|min|max|hr|hrs|a\.m|p\.m|u\.s|u\.k|no)\.$/i
 
@@ -210,6 +210,10 @@ const USABLE = 40
 
 /** Best-first list of usable voices — also what the voice picker cycles. */
 export function candidateVoices(): SpeechSynthesisVoice[] {
+  const portuguese = speechSynthesis.getVoices().filter((v) => /^pt(?:-|_)/i.test(v.lang))
+  if (portuguese.length) return portuguese.sort((a, b) =>
+    Number(/^pt[-_]br/i.test(b.lang)) - Number(/^pt[-_]br/i.test(a.lang)),
+  )
   return speechSynthesis
     .getVoices()
     .filter((v) => /^en/i.test(v.lang))
@@ -232,7 +236,7 @@ function pickVoice(): SpeechSynthesisVoice | null {
   const saved = localStorage.getItem(VOICE_PREF_KEY)
   if (saved) {
     const hit = all.find((v) => v.name === saved)
-    if (hit) return (cachedVoice = hit)
+    if (hit && /^pt(?:-|_)/i.test(hit.lang)) return (cachedVoice = hit)
     localStorage.removeItem(VOICE_PREF_KEY)
   }
 
@@ -477,7 +481,7 @@ export function createSpeaker(): Speaker {
       const u = new SpeechSynthesisUtterance(text)
       const voice = pickVoice()
       if (voice) u.voice = voice
-      u.lang = voice?.lang ?? 'en-GB'
+      u.lang = voice?.lang ?? 'pt-BR'
       // Deliberate, and deliberately invariant — the character's pace does not
       // change with stakes, and that steadiness is most of the effect. This
       // lands around 130 wpm, below the median for film dialogue.
@@ -671,7 +675,7 @@ export function createSpeaker(): Speaker {
         if (!m) break
         const cut = m.index + m[0].length
         const candidate = buffer.slice(0, cut)
-        // "Mr. Stark" is not two sentences. Leave the text in the buffer and
+        // "Mr. Matheus Ribeiro" is not two sentences. Leave the text in the buffer and
         // wait for a boundary that actually ends something.
         if (ABBREVIATION.test(candidate.trimEnd())) {
           const rest = buffer.slice(cut)
