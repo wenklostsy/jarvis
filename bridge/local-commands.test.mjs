@@ -2,6 +2,29 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createLocalCommands, parseLocalCommand } from './local-commands.mjs'
 
+test('required Windows commands distinguish dispatch from effect and never launch unknown targets', async () => {
+  const launched = [], states = []
+  const local = createLocalCommands(() => {}, {
+    openUrl: async (url) => launched.push(url), openApp: async (app) => launched.push(app),
+  })
+  for (const text of ['Abra o WhatsApp.', 'Abra o VS Code.', 'Abra o Bloco de Notas.']) {
+    const result = await local.tryHandle(text, { send: (m) => states.push(m.state) })
+    assert.match(result, /Comando enviado/)
+    assert.match(result, /não foi confirmada/)
+  }
+  assert.deepEqual(launched, ['https://web.whatsapp.com/', 'vscode', 'notepad'])
+  assert.deepEqual(states, ['started', 'effect_unconfirmed', 'started', 'effect_unconfirmed', 'started', 'effect_unconfirmed'])
+  assert.equal(await local.tryHandle('Abra aplicativo desconhecido'), null)
+  for (const text of ['Pesquise no YouTube.', 'JARVIS, pesquise no YouTube.', 'Pesquise.']) {
+    assert.match(await local.tryHandle(text), /O que você quer pesquisar/)
+  }
+  assert.equal(launched.length, 3)
+  const controller = new AbortController(); controller.abort()
+  await assert.rejects(local.tryHandle('Abra o WhatsApp', { signal: controller.signal }), /abort/i)
+  assert.equal(launched.length, 3)
+  local.close()
+})
+
 test('understands Portuguese request variations and existing commands', () => {
   for (const text of ['Jarvis, você pode abrir a calculadora por favor?', 'Chaves, abre a calculadora pra mim', 'Por favor, abra a calculadora']) {
     assert.deepEqual(parseLocalCommand(text), { kind: 'app', target: 'calc' })
@@ -77,7 +100,7 @@ test('opens WhatsApp for the reported command and speech recognition variants', 
     'Você pode, por favor, abrir o WhatsApp?', 'Por favor, Jarvis, abre pra mim o WhatsApp',
     'Acesse o site do WhatsApp', 'Abre o zap',
   ]
-  for (const phrase of phrases) assert.equal(await local.tryHandle(phrase), 'Abrindo whatsapp.', phrase)
+  for (const phrase of phrases) assert.equal(await local.tryHandle(phrase), 'Comando enviado para abrir whatsapp. A abertura não foi confirmada.', phrase)
   assert.deepEqual(urls, phrases.map(() => 'https://web.whatsapp.com/'))
   for (const phrase of ['Não abra o WhatsApp', 'Abra o WhatsApp e envie uma mensagem', 'Como abrir o WhatsApp?']) {
     assert.equal(await local.tryHandle(phrase), null)

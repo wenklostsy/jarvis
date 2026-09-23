@@ -1,3 +1,5 @@
+import { createRequests } from './requests.mjs'
+import { attachDiagnostics } from './diagnostics.mjs'
 /**
  * JARVIS local bridge.
  *
@@ -1064,6 +1066,7 @@ const RESULT_FAILURES = {
 }
 
 wss.on('connection', (socket) => {
+  attachDiagnostics(socket)
   if (process.env.JARVIS_BRAIN === 'ollama') {
     ollamaConnection(socket)
     return
@@ -1092,15 +1095,16 @@ wss.on('connection', (socket) => {
 
   async function* userMessages() {
     while (!closed) {
-      const text =
+      const entry =
         inbox.shift() ??
         (await new Promise((resolve) => {
           deliver = resolve
         }))
-      if (closed || text == null) return
+      if (closed || entry == null) return
+      if (entry.context.signal.aborted) continue
       yield {
         type: 'user',
-        message: { role: 'user', content: text },
+        message: { role: 'user', content: entry.text },
         parent_tool_use_id: null,
       }
     }
@@ -1121,7 +1125,11 @@ wss.on('connection', (socket) => {
    * listener over there has already heard.
    */
   let answering = null
-  const sendTurn = (msg) => send({ ...msg, ask: answering })
+  let currentContext = null
+  const requests = createRequests(send, { drainOnCancel: true })
+  const sendTurn = (msg) => {
+    if (currentContext && !currentContext.signal.aborted) currentContext.send({ ...msg, ask: answering })
+  }
 
   /**
    * Asking the browser for something and waiting for the answer.
@@ -1138,7 +1146,7 @@ wss.on('connection', (socket) => {
 
   const ask = (kind, args, timeoutMs = 20_000) =>
     new Promise((resolve, reject) => {
-      if (socket.readyState !== socket.OPEN) {
+      if (socket.readyState !== socket.OPEN || !currentContext || currentContext.signal.aborted) {
         return reject(new Error('the interface is not connected'))
       }
       const id = `q${++asks}`
@@ -1147,7 +1155,7 @@ wss.on('connection', (socket) => {
         reject(new Error('the interface did not answer in time'))
       }, timeoutMs)
       waiting.set(id, { resolve, timer })
-      send({ type: kind, id, ...args })
+      sendTurn({ type: kind, id, ...args })
     })
 
   /**
@@ -1189,21 +1197,7 @@ wss.on('connection', (socket) => {
    * must not wedge the conversation for ever — a stray word is a blemish, a
    * deadlocked assistant is not.
    */
-  let settling = Promise.resolve()
   let finishTurn = null
-
-  const turnFinished = () =>
-    new Promise((resolve) => {
-      finishTurn = resolve
-    })
-
-  /**
-   * A brief pause so the abandoned turn's frames are tagged with the OLD id
-   * before the new one is adopted. Short, because correctness now comes from
-   * the tag rather than from the wait — this only has to cover the gap, not
-   * outlast the whole turn.
-   */
-  const SETTLE_CAP_MS = 400
 
   const announceTool = (id, name) => {
     if (!name || (id && seenTools.has(id))) return
@@ -1237,14 +1231,14 @@ wss.on('connection', (socket) => {
       mcpServers: {
         ...MCP_SERVERS,
         jarvis: displayServer(
-          (panel) => send({ type: 'panel', panel }),
-          (blade) => send({ type: 'blade', blade }),
+          (panel) => sendTurn({ type: 'panel', panel }),
+          (blade) => sendTurn({ type: 'blade', blade }),
         ),
         // The interface controls, on the same socket. A separate key because
         // MCP tool names are `mcp__<key>__<tool>` and one key can only carry
         // one server; the underscore in it is why decideTool and announceTool
         // both name `jarvis_ui` explicitly.
-        jarvis_ui: uiServer((op, args) => send({ type: 'ui', op, args })),
+        jarvis_ui: uiServer((op, args) => sendTurn({ type: 'ui', op, args })),
         // The user's own Chrome, over the extension's native-host socket. It
         // holds no per-connection state, but it is built here with the rest so
         // the write gate is read once, at the same point as everything else.
@@ -1299,7 +1293,7 @@ wss.on('connection', (socket) => {
       // something with a consequence, like a `touch`. So a deny here is
       // reliable; an absence of a call here is not proof nothing ran.
       canUseTool: async (toolName) => {
-        const ok = decideTool(toolName)
+        const ok = currentContext && !currentContext.signal.aborted && decideTool(toolName)
         console.log(`[jarvis] tool ${toolName} -> ${ok ? 'allow' : 'deny'}`)
         return ok
           ? { behavior: 'allow' }
@@ -1390,6 +1384,7 @@ wss.on('connection', (socket) => {
                 `[jarvis] turn failed: ${msg.subtype}`,
                 msg.errors ?? '',
               )
+              if (currentContext) currentContext.failed = true
               sendTurn({
                 type: 'error',
                 message: RESULT_FAILURES[msg.subtype] ?? RESULT_FAILURES.default,
@@ -1420,7 +1415,9 @@ wss.on('connection', (socket) => {
       }
     } catch (err) {
       console.error('[jarvis] session error:', err)
-      send({ type: 'error', message: String(err?.message ?? err) })
+      sendTurn({ type: 'error', message: 'A sessão de IA falhou. Reconecte e tente novamente.' })
+      finishTurn?.()
+      requests.close()
       // The stream is finished either way — nothing will ever be read from it
       // again. Leaving the socket open would leave the client believing it has
       // a working bridge, and every later question would hang for ever waiting
@@ -1441,29 +1438,40 @@ wss.on('connection', (socket) => {
     }
 
     if (msg.type === 'ask' && typeof msg.text === 'string') {
-      /**
-       * Queued behind any interrupt that is still settling.
-       *
-       * A barge-in is two messages in quick succession — interrupt, then the
-       * new question — and session.interrupt() is asynchronous. Delivering the
-       * question the instant it arrives means the agent can still be winding
-       * down the previous turn, so its last tokens are emitted after the new
-       * one has begun and land on the new turn's listener. Measured: ask "one",
-       * interrupt, ask "two", and the answer to "two" comes back as "One."
-       *
-       * Waiting costs nothing when nothing is interrupting — the chain is an
-       * already-resolved promise — and removes the cross-talk when there is.
-       */
-      const text = msg.text
-      const id = typeof msg.id === 'string' ? msg.id : null
-      void settling.then(() => {
-        answering = id
-        if (deliver) {
-          const resolve = deliver
-          deliver = null
-          resolve(text)
-        } else {
-          inbox.push(text)
+      void requests.enqueue(msg.id, async (context) => {
+        answering = context.id
+        currentContext = context
+        let watchdog
+        const finished = new Promise((resolve) => { finishTurn = resolve })
+        const abort = () => {
+          void Promise.resolve(session.interrupt?.()).catch(() => {})
+          for (const [id, slot] of waiting) {
+            clearTimeout(slot.timer)
+            slot.resolve({ error: 'Solicitação cancelada.' })
+            waiting.delete(id)
+          }
+          // Never attach a new ID to an undrained SDK stream. Reconnect if
+          // the SDK cannot confirm its result boundary within five seconds.
+          watchdog = setTimeout(() => {
+            closed = true
+            requests.close()
+            deliver?.(null)
+            session.close?.()
+            socket.close()
+            finishTurn?.()
+          }, 5000)
+        }
+        context.signal.addEventListener('abort', abort, { once: true })
+        try {
+          context.signal.throwIfAborted()
+          if (deliver) { const resolve = deliver; deliver = null; resolve({ text: msg.text, context }) }
+          else inbox.push({ text: msg.text, context })
+          await finished
+        } finally {
+          clearTimeout(watchdog)
+          context.signal.removeEventListener('abort', abort)
+          currentContext = null
+          answering = null
         }
       })
     }
@@ -1477,23 +1485,18 @@ wss.on('connection', (socket) => {
       }
     }
 
-    if (msg.type === 'interrupt') {
-      // Held so the next question can wait for it rather than racing it.
-      const stopped = turnFinished()
-      settling = Promise.resolve(session.interrupt?.())
-        .catch(() => {})
-        .then(() =>
-          Promise.race([
-            stopped,
-            new Promise((r) => setTimeout(r, SETTLE_CAP_MS)),
-          ]),
-        )
-    }
+    if (msg.type === 'interrupt') requests.cancel(msg.ask ?? msg.id)
+
   })
 
   socket.on('close', () => {
     console.log('[jarvis] client disconnected')
     closed = true
+    requests.close()
+    inbox.length = 0
+    finishTurn?.()
+    for (const slot of waiting.values()) { clearTimeout(slot.timer); slot.resolve({ error: 'Conexão encerrada.' }) }
+    waiting.clear()
     deliver?.(null)
     session.close?.()
   })

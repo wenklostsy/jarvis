@@ -1,3 +1,4 @@
+import { createRequests, bindRequests } from './requests.mjs'
 // Gemini generateContent backend for the existing JARVIS WebSocket protocol.
 import { createLocalCommands } from './local-commands.mjs'
 import { createResearch } from './research.mjs'
@@ -6,16 +7,17 @@ import { summarizeResearch } from './research-model.mjs'
 export function geminiConnection(socket) {
   socket.send(JSON.stringify({ type: 'ready', servers: [] }))
   const history = []
-  let active = null
-  let queue = Promise.resolve()
-  const send = (message) => {
+  const requests = createRequests((message) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
-  }
+  })
+  const send = requests.send
   const research = createResearch({ generate: summarizeResearch, send })
-  const local = createLocalCommands((message) => send({ type: 'timer', message }), { research: (command) => research.run(command) })
+  const local = createLocalCommands((message) => { if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: 'timer', message })) }, { research: (command, context) => research.run(command, context) })
 
-  async function answer(id, text) {
-    const localResult = await local.tryHandle(text)
+  async function answer(id, text, context) {
+    const controller = context.controller
+    const localResult = await local.tryHandle(text, context)
+    context.signal.throwIfAborted()
     if (localResult !== null) {
       send({ type: 'text', ask: id, delta: localResult })
       send({ type: 'done', ask: id, text: localResult, costUsd: null })
@@ -26,8 +28,6 @@ export function geminiConnection(socket) {
       send({ type: 'error', ask: id, message: 'Configure GEMINI_API_KEY no arquivo .env.' })
       return
     }
-    const controller = new AbortController()
-    active = controller
     const model = process.env.JARVIS_MODEL || 'gemini-3.5-flash'
     const contents = [...history, { role: 'user', parts: [{ text }] }]
     try {
@@ -60,19 +60,8 @@ export function geminiConnection(socket) {
       send({ type: 'done', ask: id, text: output, costUsd: null })
     } catch (error) {
       if (!controller.signal.aborted) send({ type: 'error', ask: id, message: String(error.message || error) })
-    } finally {
-      if (active === controller) active = null
     }
   }
 
-  socket.on('message', (raw) => {
-    let message
-    try { message = JSON.parse(raw.toString()) } catch { return }
-    if (message.type === 'interrupt') { active?.abort(); research.cancel() }
-    else if (message.type === 'ask' && typeof message.text === 'string') {
-      const id = typeof message.id === 'string' ? message.id : null
-      queue = queue.then(() => answer(id, message.text))
-    }
-  })
-  socket.on('close', () => { active?.abort(); research.close(); local.close() })
+  bindRequests(socket, requests, answer, () => { research.close(); local.close() })
 }

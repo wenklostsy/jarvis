@@ -2,6 +2,11 @@
 
 Auditoria de 23 de setembro de 2026, preparada para Matheus Ribeiro.
 
+
+## Atualização — Etapa 1A implementada
+
+A implementação incremental de execução e diagnóstico foi autorizada e concluída após a auditoria abaixo. Veja [entrega da Etapa 1A](ETAPA_1A.md) para estados, cancelamento, arquivos, testes e limitações. A03/A07/A09 receberam correções e A08 recebeu propagação do sinal de rede. Resultado: 28 testes passaram; build passou; lint sem erros, com dois avisos anteriores. A validação manual de voz e aplicativos continua pendente. A auditoria abaixo preserva o snapshot histórico anterior às correções.
+
 ## Conclusão executiva
 
 O projeto principal já é um assistente web funcional com interface 3D, voz em português brasileiro, integração local com Ollama, comandos Windows, pesquisas públicas e geração de relatórios Word. A base deve ser preservada. Não há motivo demonstrado para reescrever a interface, trocar o bridge Node ou migrar todo o projeto para Python.

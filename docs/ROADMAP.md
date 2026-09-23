@@ -4,6 +4,10 @@ Proposta de 23 de setembro de 2026 para revisão de Matheus Ribeiro.
 
 Base: [estado real auditado](ESTADO_ATUAL.md), commit `7738d33`. O Jarvis web deste workspace é a base principal. O material Python permanece separado. Este documento propõe trabalho; não autoriza mudanças estruturais, instalações externas ou publicação.
 
+## Situação após a Etapa 1A
+
+Etapa 1A implementada por autorização posterior do usuário: fila e cancelamento por pedido, correlação de eventos, lançamentos sem confirmação inventada e diagnóstico ampliado. Validação automatizada: 28 testes aprovados, build aprovado e lint sem erros. Consulte [entrega e limites](ETAPA_1A.md). Validação manual no computador ainda pendente. Etapas 1B e 1C não foram iniciadas. O contrato geral de ferramentas e as extrações estruturais permanecem propostas futuras.
+
 ## Direção técnica
 
 Manter React/Vite/Three.js no frontend e o bridge Node como runtime principal. Ollama será a inteligência prioritária. Os adaptadores existentes de serviços pagos continuam opcionais. Não criar outro dashboard ou servidor Python para repetir o que o aplicativo já faz.
@@ -20,11 +24,11 @@ Todo incremento terá diagnóstico, critérios de aceite e documentação. Insta
 - Documentação da preparação Supabase/Alexa separada.
 - Proposta de prioridades, sem migração ou substituição da arquitetura.
 
-## Etapa 1 recomendada para a próxima aprovação
+## Etapa 1 — incrementos e critérios
 
 Objetivo: tornar confiáveis as funções já disponíveis antes de ampliá-las.
 
-### Incremento 1A execução e diagnóstico
+### Incremento 1A execução e diagnóstico — implementado e testado com simulações
 
 Reproduzir em testes os casos reais “Abra o WhatsApp”, “pesquise no YouTube e Jarvis pesquise no YouTube”, pedido sem assunto, interrupção e desconexão com fila pendente. Validar cancelamento por ID, erro recuperável e pedido seguinte funcionando. Diferenciar ação solicitada de efeito confirmado.
 
@@ -113,4 +117,4 @@ Aceite inicial do módulo: um acervo pequeno de teste pode ser restaurado em amb
 
 ## Decisão solicitada
 
-Aprovar ou ajustar a **Etapa 1**, começando por 1A e 1B. A proposta preserva o Jarvis existente e resolve as falhas que hoje atrapalham seu uso. Extração de módulos, memória, novas integrações e Legacy permanecem aguardando suas aprovações nas etapas correspondentes.
+Validar manualmente a **Etapa 1A** entregue e aprovar ou ajustar o escopo da **Etapa 1B** antes de sua implementação. A proposta preserva o Jarvis existente e resolve as falhas que hoje atrapalham seu uso. Extração de módulos, memória, novas integrações e Legacy permanecem aguardando suas aprovações nas etapas correspondentes.

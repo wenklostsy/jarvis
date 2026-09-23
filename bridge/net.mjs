@@ -170,10 +170,11 @@ export function vetTarget(raw) {
 }
 
 /** One hop. Resolves with the IncomingMessage once headers are in. */
-export function requestOnce(url, headers, timeoutMs) {
+export function requestOnce(url, headers, timeoutMs, signal) {
   return new Promise((resolve, reject) => {
     const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
       method: 'GET',
+      signal,
       headers,
       // The SSRF gate. Everything else here is plumbing.
       lookup: guardedLookup,
@@ -213,10 +214,10 @@ export function requestOnce(url, headers, timeoutMs) {
  * http://169.254.169.254/ is the whole SSRF attack, and a redirect to
  * file:// or data: is the other half of it.
  */
-export async function openRemote(startUrl, headers, timeoutMs) {
+export async function openRemote(startUrl, headers, timeoutMs, signal) {
   let url = startUrl
   for (let hop = 0; ; hop++) {
-    const res = await requestOnce(url, headers, timeoutMs)
+    const res = await requestOnce(url, headers, timeoutMs, signal)
     const status = res.statusCode ?? 0
     const location = res.headers.location
     if (status >= 300 && status < 400 && location) {
@@ -245,7 +246,7 @@ export async function openRemote(startUrl, headers, timeoutMs) {
  * the cap is one we should decline rather than truncate — half an HTML document
  * parses into something arbitrary.
  */
-export async function fetchText(url, { maxBytes, timeoutMs, accept }) {
+export async function fetchText(url, { maxBytes, timeoutMs, accept, signal }) {
   const target = vetTarget(url)
   const { res, url: finalUrl } = await openRemote(
     target,
@@ -256,6 +257,7 @@ export async function fetchText(url, { maxBytes, timeoutMs, accept }) {
       'accept-encoding': 'identity',
     },
     timeoutMs,
+    signal,
   )
 
   const status = res.statusCode ?? 0

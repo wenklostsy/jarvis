@@ -1502,7 +1502,7 @@ kbd {
   font-size: 0.72rem;
   line-height: 1.6;
   color: #cfe6e3;
-  pointer-events: none;
+  pointer-events: auto;
   backdrop-filter: blur(6px);
 }
 

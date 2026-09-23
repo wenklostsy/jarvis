@@ -59,7 +59,7 @@ export async function searchWeb(query, { request = fetchText, signal } = {}) {
   for (const [provider, url] of providers) {
     signal?.throwIfAborted()
     try {
-      const page = await request(url, OPTIONS)
+      const page = await request(url, { ...OPTIONS, signal })
       const sources = extractResults(page.text, provider)
       signal?.throwIfAborted()
       if (sources.length) return { provider, sources }
@@ -68,9 +68,9 @@ export async function searchWeb(query, { request = fetchText, signal } = {}) {
   throw new Error('Não consegui obter resultados públicos agora. Tente novamente ou peça para abrir o Google no navegador.')
 }
 
-export async function readSource(source, request = fetchText) {
+export async function readSource(source, request = fetchText, signal) {
   try {
-    const page = await request(publicUrl(source.url), OPTIONS)
+    const page = await request(publicUrl(source.url), { ...OPTIONS, signal })
     if (!/html|text\//.test(page.type)) throw new Error('Formato não suportado para leitura')
     const { document } = parseHTML(page.text)
     document.querySelectorAll('script,style,nav,header,footer,form,iframe,noscript').forEach((el) => el.remove())
@@ -90,13 +90,14 @@ export function createResearch({ generate, send = () => {}, request = fetchText,
   return {
     cancel() { controller?.abort() },
     close() { closed = true; controller?.abort(); latest = null },
-    async run(command) {
+    async run(command, context = {}) {
       if (closed) return 'A conexão foi encerrada.'
       controller?.abort()
       const current = new AbortController()
       controller = current
-      const signal = current.signal
+      const signal = context.signal ? AbortSignal.any([current.signal, context.signal]) : current.signal
       try {
+        signal.throwIfAborted()
         let data
         if (command.reuse) {
           if (!latest) return 'Faça uma pesquisa primeiro ou diga o assunto do relatório.'
@@ -111,7 +112,7 @@ export function createResearch({ generate, send = () => {}, request = fetchText,
           const domain = command.site || (command.engine === 'youtube' ? 'youtube.com' : null)
           if (domain) found.sources = found.sources.filter((s) => { const host = new URL(s.url).hostname; return host === domain || host.endsWith(`.${domain}`) })
           if (!found.sources.length) throw new Error('Não encontrei resultados públicos nesse site para o assunto solicitado.')
-          const sources = await Promise.all(found.sources.slice(0, command.report ? 5 : 3).map((s) => readSource(s, request)))
+          const sources = await Promise.all(found.sources.slice(0, command.report ? 5 : 3).map((s) => readSource(s, request, signal)))
           signal.throwIfAborted()
           if (!sources.some((s) => s.text || s.snippet)) throw new Error('Não consegui ler o conteúdo dessa página. Ela pode exigir login ou bloquear acesso automático.')
           data = { query, provider: found.provider, sources, date: new Date().toISOString() }
@@ -132,10 +133,10 @@ export function createResearch({ generate, send = () => {}, request = fetchText,
         signal.throwIfAborted()
         summary = summary.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/^#{1,6}\s+/gm, '')
         data = { ...data, summary: summary.slice(0, 14000), synthesis }
-        latest = data
         let report = null
         if (command.report) report = await saveReport(data)
         signal.throwIfAborted()
+        latest = data
         const port = Number(process.env.JARVIS_BRIDGE_PORT || 8787)
         const reportLink = report ? `<p><a href="http://localhost:${port}/reports/${report.name}">Baixar relatório em Word</a></p>` : ''
         const html = `<p><strong>${esc(data.query)}</strong></p><p>Consulta em ${esc(new Date(data.date).toLocaleString('pt-BR'))}. Busca: ${esc(data.provider)}.</p>${reportLink}${data.summary.split(/\n+/).map((p) => `<p>${esc(p)}</p>`).join('')}<p><strong>Fontes para validação</strong></p><ol>${data.sources.map((s) => `<li><a href="${esc(s.url)}">${esc(s.title || s.url)}</a><br><small>${esc(s.status)}</small></li>`).join('')}</ol><p>Conteúdo gerado para revisão de Matheus Ribeiro. Confirme as informações nas fontes.</p>`

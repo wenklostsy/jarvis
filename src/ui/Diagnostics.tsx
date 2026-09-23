@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
+import { bridgeDiagnostics as b, refreshDiagnostics } from '../lib/bridge'
+import { BACKEND, MODEL } from '../config'
 
 /**
  * The "why can't he hear me / why can't I hear him" panel.
@@ -75,8 +77,10 @@ export function Diagnostics() {
 
   useEffect(() => {
     if (!open) return
+    refreshDiagnostics()
+    const refresh = setInterval(refreshDiagnostics, 5000)
     const id = setInterval(() => tick((n) => n + 1), 250)
-    return () => clearInterval(id)
+    return () => { clearInterval(id); clearInterval(refresh) }
   }, [open])
 
   if (!open) return null
@@ -103,6 +107,19 @@ export function Diagnostics() {
         </span>
       </div>
 
+      <div className="diag-sec">EXECUÇÃO</div>
+      <Row k="backend" v={BACKEND === 'bridge' ? b.backend : 'Anthropic direto'} />
+      <Row k="modelo" v={BACKEND === 'bridge' ? b.model : MODEL} />
+      <Row k="Ollama" v={b.ollama} />
+      <Row k="WebSocket" v={BACKEND === 'bridge' ? b.connection : 'não utilizado'} />
+      <Row k="servidor" v={b.revision} />
+      <Row k="código em disco" v={b.sourceStatus} />
+      <Row k="instância" v={b.instance} />
+      <Row k="iniciado em" v={b.startedAt} />
+      <Row k="solicitação" v={b.request + ' · ' + b.state} />
+      <Row k="último erro" v={b.lastError || '—'} bad={Boolean(b.lastError)} />
+      <Row k="API reconhecimento" v={'SpeechRecognition' in window || 'webkitSpeechRecognition' in window ? 'presente; acesso depende do navegador' : 'ausente; verificar serviço alternativo'} />
+      <Row k="API síntese" v={'speechSynthesis' in window ? 'presente; áudio não confirmado' : 'ausente; verificar serviço alternativo'} />
       <div className="diag-sec">LISTENING</div>
       <Row k="recogniser" v={v.running ? 'running' : 'STOPPED'} bad={!v.running} />
       <Row k="sessions" v={String(v.sessions ?? 0)} />
@@ -115,9 +132,9 @@ export function Diagnostics() {
       <Row k="mode" v={`${v.mode ?? '—'} (phase ${phase})`} />
       <Row k="accepted" v={String(v.accepted ?? 0)} bad={(v.accepted ?? 0) === 0} />
       <Row k="wakes" v={String(v.wakes ?? 0)} />
-      <Row k="last heard" v={v.heard ? `"${v.heard}" ${ago(v.heardAt ?? 0)}` : '— nothing yet'} bad={!v.heard} />
-      <Row k="last drop" v={v.dropped || '—'} bad={Boolean(v.dropped)} />
-      <Row k="error" v={v.lastError || '—'} bad={Boolean(v.lastError)} />
+      <Row k="last heard" v={v.heard ? ago(v.heardAt ?? 0) : '— nothing yet'} bad={!v.heard} />
+      <Row k="last drop" v={v.dropped ? 'segmento descartado' : '—'} bad={Boolean(v.dropped)} />
+      <Row k="error" v={v.lastError ? 'falha no reconhecimento' : '—'} bad={Boolean(v.lastError)} />
 
       <div className="diag-sec">SPEAKING · press T to test</div>
       <Row k="engine" v={String(t.engine ?? 'system')} />
@@ -126,7 +143,7 @@ export function Diagnostics() {
       <Row k="actually spoke" v={String(t.started ?? 0)} bad={(t.started ?? 0) === 0} />
       <Row k="failures" v={String(t.failures ?? 0)} bad={(t.failures ?? 0) > 0} />
       <Row k="cloud rescues" v={String(t.rescued ?? 0)} />
-      <Row k="error" v={t.lastError || '—'} bad={Boolean(t.lastError)} />
+      <Row k="error" v={t.lastError ? 'falha na síntese' : '—'} bad={Boolean(t.lastError)} />
     </div>
   )
 }

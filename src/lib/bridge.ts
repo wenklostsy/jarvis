@@ -19,6 +19,15 @@ import { BRIDGE_WS_URL } from '../config'
 /** Anything the bridge sends. Deliberately loose — a frame from a future
  *  bridge build should be ignored, not crash the turn. */
 type Frame = {
+  state?: string
+  protocol?: number
+  backend?: string
+  model?: string
+  ollama?: string
+  revision?: string
+  instance?: string
+  sourceStatus?: string
+  startedAt?: string
   type?: string
   delta?: string
   name?: string
@@ -38,6 +47,16 @@ type Frame = {
 }
 
 /** Every question gets an id so its answer can be told from anyone else's. */
+export const bridgeDiagnostics = {
+  backend: 'não informado', model: 'não informado', ollama: 'não verificado',
+  sourceStatus: 'não informado', revision: 'servidor sem identificação', instance: '—', startedAt: '—',
+  connection: 'desconectado', request: '—', state: 'idle', lastError: '',
+}
+export function refreshDiagnostics() {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'diagnostics' }))
+}
+let protocol = 1
+let activeAsk: string | null = null
 let askSeq = 0
 
 let socket: WebSocket | null = null
@@ -173,6 +192,20 @@ function dispatch(ws: WebSocket) {
       return
     }
 
+    if (socket !== ws) return
+    if (msg.type === 'diagnostics') {
+      protocol = msg.protocol ?? 1
+      for (const key of ['backend', 'model', 'ollama', 'revision', 'instance', 'startedAt', 'sourceStatus'] as const) {
+        if (typeof msg[key] === 'string') bridgeDiagnostics[key] = msg[key]
+      }
+      return
+    }
+    if (['panel', 'blade', 'ui', 'capture', 'request', 'progress'].includes(msg.type ?? '')) {
+      if (!activeAsk || (msg.ask ? msg.ask !== activeAsk : protocol >= 2)) return
+    }
+    if (msg.type === 'request' || msg.type === 'progress') {
+      bridgeDiagnostics.state = msg.state ?? 'running'
+    }
     if (msg.type === 'ready') {
       // The bridge announces immediately on connect from Claude Code's config,
       // then again with live status once the agent initialises. Keep listening
@@ -223,6 +256,9 @@ function connect(): Promise<WebSocket> {
   if (connecting) return connecting
 
   firstReady = deferred()
+  protocol = 1
+  bridgeDiagnostics.connection = 'conectando'
+  Object.assign(bridgeDiagnostics, { backend: 'não informado', model: 'não informado', ollama: 'não verificado', revision: 'servidor sem identificação', instance: '—', startedAt: '—', sourceStatus: 'não informado' })
 
   connecting = new Promise<WebSocket>((resolve, reject) => {
     const ws = new WebSocket(BRIDGE_WS_URL)
@@ -250,6 +286,7 @@ function connect(): Promise<WebSocket> {
 
     ws.onopen = () => {
       socket = ws
+      bridgeDiagnostics.connection = 'conectado'
       attempt = 0
       dispatch(ws)
       settle(null)
@@ -270,6 +307,7 @@ function connect(): Promise<WebSocket> {
        * So say both, and put the actual port in front of them, since that is
        * the fact that distinguishes the two cases at a glance.
        */
+      bridgeDiagnostics.lastError = 'Falha na conexão WebSocket.'
       settle(
         new Error(
           `Cannot reach the bridge at ${BRIDGE_WS_URL}. Either it is not ` +
@@ -285,6 +323,8 @@ function connect(): Promise<WebSocket> {
       settle(new Error('The bridge closed the connection.'))
       if (socket === ws) {
         socket = null
+        bridgeDiagnostics.connection = 'desconectado'
+        bridgeDiagnostics.lastError = 'Conexão WebSocket encerrada.'
         onConnection?.('lost')
         scheduleReconnect()
       }
@@ -318,7 +358,7 @@ export async function warmBridge(): Promise<void> {
 const IDLE_TIMEOUT_MS = 120_000
 
 /** The turn in flight, so a barge-in can settle it locally. */
-let pending: { finish: (fallback?: string) => void } | null = null
+let pending: { id: string; finish: (fallback?: string) => void } | null = null
 
 export async function ask(
   prompt: string,
@@ -350,8 +390,13 @@ export async function ask(
 
   // Claim the slot in this same tick. connect() below awaits, and two calls
   // made before it settles would otherwise both sail past the check above.
+  const id = `a${++askSeq}`
+  activeAsk = id
+  bridgeDiagnostics.request = id
+  bridgeDiagnostics.state = 'connecting'
   let cancelledWhileDialling = false
   pending = {
+    id,
     finish: () => {
       cancelledWhileDialling = true
     },
@@ -361,17 +406,16 @@ export async function ask(
   try {
     ws = await connect()
   } catch (err) {
-    pending = null
+    if (pending?.id === id) { pending = null; activeAsk = null }
     throw err
   }
 
   // Barged in on before the socket was even up. Nothing was ever asked.
   if (cancelledWhileDialling) {
-    pending = null
+    if (pending?.id === id) { pending = null; activeAsk = null }
     return { text: '', tools: [] }
   }
 
-  const id = `a${++askSeq}`
   const tools: string[] = []
   let text = ''
 
@@ -381,7 +425,7 @@ export async function ask(
 
     const cleanup = () => {
       done = true
-      pending = null
+      if (pending?.id === id) { pending = null; activeAsk = null }
       clearTimeout(timer)
       ws.removeEventListener('message', onMessage)
       ws.removeEventListener('close', onClose)
@@ -398,6 +442,8 @@ export async function ask(
 
     const fail = (err: Error) => {
       if (done) return
+      bridgeDiagnostics.lastError = 'Falha na solicitação ou conexão. Consulte a resposta do assistente.'
+      bridgeDiagnostics.state = 'failed'
       cleanup()
       reject(err)
     }
@@ -405,13 +451,12 @@ export async function ask(
     const arm = () => {
       clearTimeout(timer)
       timer = window.setTimeout(() => {
-        fail(new Error('The bridge went quiet — that turn was lost, sir.'))
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'interrupt', ask: id }))
+        fail(new Error('O bridge deixou de responder a esta solicitação.'))
       }, IDLE_TIMEOUT_MS)
     }
 
     const onMessage = (e: MessageEvent) => {
-      // Any frame at all is proof of life, including ones this turn ignores.
-      arm()
 
       let msg: Frame
       try {
@@ -432,7 +477,8 @@ export async function ask(
        * of the new one. Measured before it existed: ask for ALPHA, barge in,
        * ask for BRAVO, and BRAVO's answer came back as "ALPHA".
        */
-      if (msg.ask && msg.ask !== id) return
+      if (msg.ask ? msg.ask !== id : protocol >= 2) return
+      arm()
 
       try {
         switch (msg.type) {
@@ -447,7 +493,14 @@ export async function ask(
             handlers.onTool(prettyToolName(msg.name))
             break
 
+          case 'request':
+            bridgeDiagnostics.state = msg.state ?? 'running'
+            if (msg.state === 'cancelled') { text = ''; finish() }
+            break
+
           case 'done':
+            bridgeDiagnostics.state = msg.state ?? 'completed'
+            if (msg.state === 'failed') bridgeDiagnostics.lastError = 'Falha na execução do comando local.'
             finish(msg.text ?? '')
             break
 
@@ -467,7 +520,7 @@ export async function ask(
       fail(new Error('The connection to the bridge failed.'))
     }
 
-    pending = { finish }
+    pending = { id, finish }
     ws.addEventListener('message', onMessage)
     ws.addEventListener('close', onClose)
     ws.addEventListener('error', onError)
@@ -492,8 +545,9 @@ export async function ask(
  */
 export function cancel(): void {
   if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'interrupt' }))
+    socket.send(JSON.stringify({ type: 'interrupt', ask: pending?.id }))
   }
+  bridgeDiagnostics.state = 'cancelled'
   pending?.finish()
 }
 

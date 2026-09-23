@@ -212,7 +212,9 @@ export function createLocalCommands(onTimer, actions = {}) {
   const timers = new Map()
   let pendingSearch = null
   return {
-    async tryHandle(text) {
+    async tryHandle(text, context = {}) {
+      context.signal?.throwIfAborted()
+      const progress = (state) => context.send?.({ type: 'progress', state, name: 'comando_local' })
       let command = parseLocalCommand(text)
       const pending = pendingSearch
       pendingSearch = null
@@ -229,7 +231,7 @@ export function createLocalCommands(onTimer, actions = {}) {
       if (command.kind === 'invalid_url') return 'Use o endereço público completo do site, começando com https://.'
       if (command.kind === 'research') {
         if (!actions.research) return 'A ferramenta de pesquisa não está disponível nesta conexão.'
-        return actions.research(command)
+        return actions.research(command, context)
       }
       if (command.kind === 'time') {
         return `São ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.`
@@ -261,13 +263,17 @@ export function createLocalCommands(onTimer, actions = {}) {
         return command.message ? `Vou lembrar você de ${command.message} em ${command.label}.` : `Timer de ${command.label} iniciado.`
       }
       try {
+        context.signal?.throwIfAborted()
+        progress('started')
         if (command.kind === 'site' || command.kind === 'settings') {
           await launchUrl(command.url)
-          return `Abrindo ${command.target}.`
+          progress('effect_unconfirmed')
+          return `Comando enviado para abrir ${command.target}. A abertura não foi confirmada.`
         }
         if (command.kind === 'folder') {
           await launchFolder(command.location)
-          return `Abrindo ${command.target}.`
+          progress('effect_unconfirmed')
+          return `Comando enviado para abrir ${command.target}. A abertura não foi confirmada.`
         }
         if (command.kind === 'search') {
           if (command.query.length > 200) return 'A pesquisa é longa demais. Resuma o que deseja procurar.'
@@ -276,14 +282,18 @@ export function createLocalCommands(onTimer, actions = {}) {
             : command.engine === 'maps' ? 'https://www.google.com/maps/search/?api=1&query='
               : 'https://www.google.com/search?q='
           await launchUrl(`${base}${encodeURIComponent(command.query)}`)
-          return `Pesquisando ${command.query}${command.engine === 'youtube' ? ' no YouTube' : command.engine === 'maps' ? ' no Maps' : ' no Google'}.`
+          progress('effect_unconfirmed')
+          return `Comando enviado para pesquisar ${command.query}${command.engine === 'youtube' ? ' no YouTube' : command.engine === 'maps' ? ' no Maps' : ' no Google'}.`
         }
         if (command.kind === 'app') {
           await launchApp(command.target)
           const names = { vscode: 'VS Code', calc: 'a Calculadora', notepad: 'o Bloco de Notas', explorer: 'o Explorador de Arquivos', paint: 'o Paint', taskmgr: 'o Gerenciador de Tarefas' }
-          return `Abrindo ${names[command.target]}.`
+          progress('effect_unconfirmed')
+          return `Comando enviado para abrir ${names[command.target]}. A abertura não foi confirmada.`
         }
       } catch (error) {
+        context.signal?.throwIfAborted()
+        progress('failed')
         return String(error.message || error)
       }
       return null

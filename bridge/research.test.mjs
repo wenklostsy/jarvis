@@ -6,6 +6,27 @@ import { join } from 'node:path'
 import JSZip from 'jszip'
 import { createResearch, extractResults, publicUrl, searchWeb } from './research.mjs'
 import { writeReport } from './reports.mjs'
+import { createRequests } from './requests.mjs'
+
+test('research propagates request cancellation and never publishes late panels or reports', async () => {
+  const frames = []; let finish, signal, saves = 0
+  const q = createRequests((m) => frames.push(m))
+  const research = createResearch({ send: q.send,
+    request: async (_url, options) => {
+      signal = options.signal
+      return new Promise((resolve) => { finish = resolve })
+    },
+    saveReport: async () => { saves++; return { name: 'mock.docx' } },
+  })
+  const pending = q.enqueue('research', (context) => research.run({ query: 'tema', report: true }, context))
+  await new Promise((r) => setImmediate(r))
+  assert.equal(frames.find((m) => m.type === 'tool').ask, 'research')
+  q.cancel('research'); assert.equal(signal.aborted, true)
+  finish({ text: '<a href="https://example.com"><h3>Tema</h3></a>', type: 'text/html' })
+  await pending; await new Promise((r) => setImmediate(r))
+  assert.equal(saves, 0); assert.equal(frames.some((m) => m.type === 'blade'), false)
+  research.close(); q.close()
+})
 
 const result = '<html><body><div class="result"><a class="result__a" href="https://example.com/article">Fonte &amp; título</a><div class="result__snippet">Informação para pesquisa</div></div></body></html>'
 const request = async (url) => {
