@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { publicUrl } from './research.mjs'
 
 const SITES = new Map([
   ['youtube', 'https://www.youtube.com/'],
@@ -63,6 +64,10 @@ function duration(raw) {
 
 function commandText(text) {
   let said = normal(text)
+  said = said.replace(/^e (?=(?:jarvis|javis|chaves)\b)/, '')
+  // Repeated wake phrases in a single recognition segment are not search topics.
+  const repeated = said.split(/\s+(?:e\s+)?(?:jarvis|javis|chaves)\s+(?=(?:pesquise|pesquisa|procure|busque|abra|abre)\b)/)
+  if (repeated.length > 1 && /^(?:(?:jarvis|javis|chaves) )?(?:pesquise|pesquisa|procure|busque) no (?:youtube|you tube|google)$/.test(repeated[0])) said = repeated.at(-1)
   // Speech transcripts vary in spacing, vocatives and placement of politeness.
   // Strip only anchored request prefixes, never negations or reported speech.
   for (let i = 0; i < 4; i++) {
@@ -70,7 +75,9 @@ function commandText(text) {
       .replace(/^(?:(?:ei|em|ola|hey|ok) )?(?:jarvis|javis|jarves|jarvys|jervis|travis|chaves) /, '')
       .replace(/^por favor /, '')
       .replace(/^(?:(?:voce )?(?:pode|poderia|consegue)|quero que voce|preciso que voce) /, '')
+      .replace(/^me (?=(?:faca|crie|gere|elabore)\b)/, '')
   }
+  said = said.replace(/^(?:faca|fazer|realize|realizar) uma pesquisa(?: no google| na internet)? (?:sobre|de) /, 'pesquise sobre ')
   return said.replace(/(?: por favor| pra mim| para mim)+$/, '')
 }
 
@@ -86,6 +93,24 @@ export function parseLocalCommand(text) {
   // Brazilian speech recognition often hears "Jarvis" as "Chaves".
   // Strip a leading vocative only; the command itself stays explicit.
   const said = commandText(text)
+  const urlRequest = /(?:https?:\/\/|www\.)[^\s<>"']+/i.exec(text)
+  if (urlRequest && /^(?:abra|abre|abrir|acesse|acessa|acessar|leia|ler|resuma|resumir)\b/.test(said)) {
+    try {
+      const url = publicUrl(urlRequest[0].replace(/[.,;!?]+$/, '').replace(/^www\./i, 'https://www.'))
+      return /^(?:leia|ler|resuma|resumir)\b/.test(said) ? { kind: 'research', url } : { kind: 'site', target: new URL(url).hostname, url }
+    } catch { return { kind: 'invalid_url' } }
+  }
+  if (/^(?:gere|gerar|crie|criar|elabore|elaborar|faca) (?:um |o )?relatorio(?: em word)? (?:dessa|desta|da ultima) pesquisa$/.test(said)) return { kind: 'research', report: true, reuse: true }
+  const report = /^(?:gere|gerar|crie|criar|elabore|elaborar|faca) (?:um |o )?relatorio(?: em word)? (?:sobre|de) (.+)$/.exec(said)
+  if (report) return { kind: 'research', report: true, query: report[1] }
+  const researchReport = /^(?:pesquise|pesquisa|pesquisar|procure)(?: sobre| por)? (.+?) e (?:me )?(?:gere|crie|elabore|faca|entregue)(?: para mim)? (?:um |o )?relatorio(?: em word)?$/.exec(said)
+  if (researchReport) return { kind: 'research', report: true, query: researchReport[1] }
+  const siteSearch = /(?:pesquise|pesquisa|pesquisar|procure|busque)\s+(?:no site|em)\s+((?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,})(?:\s+(?:por|sobre))?\s+(.+)/i.exec(text)
+  if (siteSearch && /^(?:pesquise|pesquisa|pesquisar|procure|busque)\b/.test(said)) {
+    try { return { kind: 'research', site: new URL(publicUrl(/^https?:/i.test(siteSearch[1]) ? siteSearch[1] : `https://${siteSearch[1]}`)).hostname, query: siteSearch[2] } }
+    catch { return { kind: 'invalid_url' } }
+  }
+  if (/^(?:pesquise|pesquisa|pesquisar|procure|busque)(?: no google| na internet)?$/.test(said)) return { kind: 'search_prompt', engine: 'google' }
   if (/^(?:que horas sao(?: agora)?|qual e a hora|me diga as horas|me diz as horas|horas|hora atual)$/.test(said)) {
     return { kind: 'time' }
   }
@@ -115,6 +140,7 @@ export function parseLocalCommand(text) {
     const video = pattern.exec(said)
     if (!video) continue
     const query = video[1]?.replace(/^(?:videos?|conteudos?) (?:de|sobre) /, '').trim()
+    if (query && /^(?:e )?(?:jarvis )?(?:pesquise|pesquisa|procure|busque) no (?:youtube|you tube)$/.test(query)) return { kind: 'search_prompt', engine: 'youtube' }
     return query ? { kind: 'search', engine: 'youtube', query } : { kind: 'search_prompt', engine: 'youtube' }
   }
   const maps = /^(?:mostre|mostra|mostrar|procure|procura|procurar|pesquise|pesquisa|pesquisar) (?:no (?:google )?maps (.+)|(.+?) no (?:google )?maps)$/.exec(said)
@@ -130,6 +156,11 @@ export function parseLocalCommand(text) {
     let target = open[1].replace(/^(?:site|aplicativo|programa|pasta) (?:do |da |de )?/, '')
     if (/^(?:whats ?app|whats|zap|zap zap|uat(?:s|z) ?ap)(?: web)?$/.test(target)) target = 'whatsapp'
     if (/^(?:you tube|you-tube)$/.test(target)) target = 'youtube'
+    const domain = /(?:^|\s)((?:[a-z0-9-]+\.)+[a-z]{2,})(?:\s*[.!?])?\s*$/i.exec(text)
+    if (domain) {
+      try { const url = publicUrl(`https://${domain[1]}`); return { kind: 'site', target: domain[1], url } }
+      catch { return { kind: 'invalid_url' } }
+    }
     if (SITES.has(target)) return { kind: 'site', target, url: SITES.get(target) }
     if (FOLDERS.has(target)) return { kind: 'folder', target, location: FOLDERS.get(target) }
     if (SETTINGS.has(target)) return { kind: 'settings', target, url: SETTINGS.get(target) }
@@ -193,13 +224,18 @@ export function createLocalCommands(onTimer, actions = {}) {
       if (!command) return null
       if (command.kind === 'search_prompt') {
         pendingSearch = { engine: command.engine, expires: Date.now() + 60000 }
-        return 'O que você quer pesquisar no YouTube?'
+        return `O que você quer pesquisar no ${command.engine === 'youtube' ? 'YouTube' : 'Google'}?`
+      }
+      if (command.kind === 'invalid_url') return 'Use o endereço público completo do site, começando com https://.'
+      if (command.kind === 'research') {
+        if (!actions.research) return 'A ferramenta de pesquisa não está disponível nesta conexão.'
+        return actions.research(command)
       }
       if (command.kind === 'time') {
         return `São ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.`
       }
       if (command.kind === 'date') return `Hoje é ${new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}.`
-      if (command.kind === 'help') return 'Matheus, posso abrir aplicativos, pastas e sites, pesquisar no Google, YouTube e Maps, dizer a data e a hora e criar lembretes. Experimente: me lembre de beber água em dez minutos. Ou: abra a pasta downloads.'
+      if (command.kind === 'help') return 'Matheus, posso abrir aplicativos, pastas e sites, pesquisar conteúdo na web e no YouTube, mostrar fontes e gerar relatórios em Word. Também digo a data e a hora e crio lembretes. Experimente: pesquise sobre energia solar. Depois: gere um relatório dessa pesquisa.'
       if (command.kind === 'list_timers') {
         if (!timers.size) return 'Não há timers ou lembretes ativos.'
         return [...timers.values()].map(({ due, label, message }) => {
@@ -235,6 +271,7 @@ export function createLocalCommands(onTimer, actions = {}) {
         }
         if (command.kind === 'search') {
           if (command.query.length > 200) return 'A pesquisa é longa demais. Resuma o que deseja procurar.'
+          if (actions.research && command.engine !== 'maps') return actions.research(command)
           const base = command.engine === 'youtube' ? 'https://www.youtube.com/results?search_query='
             : command.engine === 'maps' ? 'https://www.google.com/maps/search/?api=1&query='
               : 'https://www.google.com/search?q='

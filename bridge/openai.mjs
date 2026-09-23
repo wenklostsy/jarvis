@@ -1,4 +1,7 @@
 // OpenAI Responses API backend for the existing JARVIS WebSocket protocol.
+import { createLocalCommands } from './local-commands.mjs'
+import { createResearch } from './research.mjs'
+import { summarizeResearch } from './research-model.mjs'
 const API_URL = 'https://api.openai.com/v1/responses'
 
 export function openaiConnection(socket, systemPrompt) {
@@ -9,8 +12,16 @@ export function openaiConnection(socket, systemPrompt) {
   const send = (message) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
   }
+  const research = createResearch({ generate: summarizeResearch, send })
+  const local = createLocalCommands((message) => send({ type: 'timer', message }), { research: (command) => research.run(command) })
 
   async function answer(id, text) {
+    const localResult = await local.tryHandle(text)
+    if (localResult !== null) {
+      send({ type: 'text', ask: id, delta: localResult })
+      send({ type: 'done', ask: id, text: localResult, costUsd: null })
+      return
+    }
     const key = process.env.OPENAI_API_KEY
     if (!key) {
       send({ type: 'error', ask: id, message: 'Configure OPENAI_API_KEY no arquivo .env.' })
@@ -57,10 +68,11 @@ export function openaiConnection(socket, systemPrompt) {
     try { message = JSON.parse(raw.toString()) } catch { return }
     if (message.type === 'interrupt') {
       active?.abort()
+      research.cancel()
     } else if (message.type === 'ask' && typeof message.text === 'string') {
       const id = typeof message.id === 'string' ? message.id : null
       queue = queue.then(() => answer(id, message.text))
     }
   })
-  socket.on('close', () => active?.abort())
+  socket.on('close', () => { active?.abort(); research.close(); local.close() })
 }

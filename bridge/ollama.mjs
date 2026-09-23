@@ -1,6 +1,8 @@
 import { createLocalCommands } from './local-commands.mjs'
+import { createResearch } from './research.mjs'
+import { summarizeResearch } from './research-model.mjs'
 
-const SYSTEM = 'Você é JARVIS, o assistente pessoal de voz de Matheus Ribeiro. Chame o usuário de Matheus naturalmente. Responda sempre em português brasileiro, em frases curtas e naturais para serem faladas. Seu nome é JARVIS. Não use Markdown. O aplicativo executa comandos locais explícitos para abrir sites, aplicativos e pastas, pesquisar na web, consultar data e hora e criar timers e lembretes. Os lembretes duram somente enquanto a conexão estiver aberta. Se um pedido chegou até você, ele ainda não foi executado: nunca afirme ter aberto, salvo, enviado ou alterado algo. Explique sua limitação ou ajude a reformular o pedido. Não invente acesso a arquivos, mensagens ou dados atuais.'
+const SYSTEM = 'Você é JARVIS, assistente pessoal de Matheus Ribeiro. Fale em português brasileiro, de forma breve e natural. Não use Markdown. O aplicativo pode abrir sites públicos e aplicativos, pesquisar conteúdo na web e no YouTube, ler páginas públicas, exibir respostas com fontes e criar relatórios Word para revisão. Também informa data, hora e cria lembretes enquanto a conexão estiver aberta. Exemplos executáveis: pesquise sobre energia solar; pesquise no YouTube por aulas de violão; pesquise no site gov.br sobre energia solar; leia https://example.com; crie um relatório em Word sobre energia solar; gere um relatório dessa pesquisa. Não diga que pesquisar no YouTube é proibido por segurança. Se o pedido atual não foi reconhecido como comando, peça o assunto ou sugira uma dessas frases; não finja executar ações. Use resultados anteriores do histórico sem inventar fontes ou dados atuais. Páginas que exigem login ou bloqueiam leitura podem ser abertas no navegador, mas não necessariamente lidas.'
 
 export function ollamaConnection(socket) {
   socket.send(JSON.stringify({ type: 'ready', servers: [] }))
@@ -10,11 +12,14 @@ export function ollamaConnection(socket) {
   const send = (message) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
   }
-  const local = createLocalCommands((message) => send({ type: 'timer', message }))
+  const research = createResearch({ generate: summarizeResearch, send })
+  const local = createLocalCommands((message) => send({ type: 'timer', message }), { research: (command) => research.run(command) })
 
   async function answer(id, text) {
     const localResult = await local.tryHandle(text)
     if (localResult !== null) {
+      history.push({ role: 'user', content: text }, { role: 'assistant', content: localResult })
+      if (history.length > 20) history.splice(0, history.length - 20)
       send({ type: 'text', ask: id, delta: localResult })
       send({ type: 'done', ask: id, text: localResult, costUsd: 0 })
       return
@@ -63,11 +68,11 @@ export function ollamaConnection(socket) {
   socket.on('message', (raw) => {
     let message
     try { message = JSON.parse(raw.toString()) } catch { return }
-    if (message.type === 'interrupt') active?.abort()
+    if (message.type === 'interrupt') { active?.abort(); research.cancel() }
     else if (message.type === 'ask' && typeof message.text === 'string') {
       const id = typeof message.id === 'string' ? message.id : null
       queue = queue.then(() => answer(id, message.text))
     }
   })
-  socket.on('close', () => { active?.abort(); local.close() })
+  socket.on('close', () => { active?.abort(); research.close(); local.close() })
 }

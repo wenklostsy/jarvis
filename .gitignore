@@ -13,6 +13,7 @@ dist-ssr
 *.local
 .env
 .venv-kokoro/
+reports/
 
 # Editor directories and files
 .vscode/*

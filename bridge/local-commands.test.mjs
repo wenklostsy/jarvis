@@ -121,3 +121,26 @@ test('YouTube asks for a topic, cancels, expires and prioritizes a new command',
   assert.equal(await local.tryHandle('receitas de bolo'), null)
   assert.equal(urls.length, 2)
 })
+
+test('the repeated wake phrase from the screenshot never becomes a search topic', async () => {
+  const queries = []
+  const local = createLocalCommands(() => {}, { research: async (c) => { queries.push(c); return 'Resultado' } })
+  for (const phrase of ['pesquise no Youtube e Jarvis pesquise no Youtube', 'e Jarvis pesquise no Youtube', 'pesquise no YouTube pesquise no YouTube']) {
+    assert.match(await local.tryHandle(phrase), /O que você quer pesquisar/)
+  }
+  assert.equal(queries.length, 0)
+  assert.equal(await local.tryHandle('aulas de violão'), 'Resultado')
+  assert.equal(queries[0].engine, 'youtube')
+  assert.equal(queries[0].query, 'aulas de violao')
+})
+
+test('research, site searches, reports and explicit URLs are routed to real tools', () => {
+  assert.deepEqual(parseLocalCommand('Crie um relatório em Word sobre energia solar'), { kind: 'research', report: true, query: 'energia solar' })
+  assert.deepEqual(parseLocalCommand('Pesquise energia solar e me elabore um relatório em Word'), { kind: 'research', report: true, query: 'energia solar' })
+  assert.equal(parseLocalCommand('Gere um relatório dessa pesquisa').reuse, true)
+  assert.equal(parseLocalCommand('Pesquise no site gov.br sobre energia solar').site, 'gov.br')
+  assert.equal(parseLocalCommand('Leia https://example.com/noticia').url, 'https://example.com/noticia')
+  assert.equal(parseLocalCommand('Abra https://example.com').kind, 'site')
+  assert.equal(parseLocalCommand('Leia http://127.0.0.1/').kind, 'invalid_url')
+  assert.equal(parseLocalCommand('Não abra https://example.com'), null)
+})

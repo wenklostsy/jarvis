@@ -1689,6 +1689,8 @@ kbd {
 }
 
 .bl-markup { padding: 14px 16px; text-transform: none; letter-spacing: normal }
+.bl-markup a { color: #5cf2ef; text-decoration: underline; overflow-wrap: anywhere }
+.bl-markup a:hover, .bl-markup a:focus-visible { color: #fff }
 
 .bl-note {
   padding: 22px;

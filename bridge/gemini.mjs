@@ -1,5 +1,7 @@
 // Gemini generateContent backend for the existing JARVIS WebSocket protocol.
 import { createLocalCommands } from './local-commands.mjs'
+import { createResearch } from './research.mjs'
+import { summarizeResearch } from './research-model.mjs'
 
 export function geminiConnection(socket) {
   socket.send(JSON.stringify({ type: 'ready', servers: [] }))
@@ -9,7 +11,8 @@ export function geminiConnection(socket) {
   const send = (message) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
   }
-  const local = createLocalCommands((message) => send({ type: 'timer', message }))
+  const research = createResearch({ generate: summarizeResearch, send })
+  const local = createLocalCommands((message) => send({ type: 'timer', message }), { research: (command) => research.run(command) })
 
   async function answer(id, text) {
     const localResult = await local.tryHandle(text)
@@ -65,11 +68,11 @@ export function geminiConnection(socket) {
   socket.on('message', (raw) => {
     let message
     try { message = JSON.parse(raw.toString()) } catch { return }
-    if (message.type === 'interrupt') active?.abort()
+    if (message.type === 'interrupt') { active?.abort(); research.cancel() }
     else if (message.type === 'ask' && typeof message.text === 'string') {
       const id = typeof message.id === 'string' ? message.id : null
       queue = queue.then(() => answer(id, message.text))
     }
   })
-  socket.on('close', () => { active?.abort(); local.close() })
+  socket.on('close', () => { active?.abort(); research.close(); local.close() })
 }

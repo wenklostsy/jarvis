@@ -27,6 +27,9 @@ const EXAMPLES = [
   'me lembre de beber água em dez minutos',
   'quanto tempo falta',
   'abra as configurações de som',
+  'pesquise sobre energia solar no Brasil',
+  'crie um relatório em Word sobre energia solar',
+  'pesquise no site gov.br sobre educação',
 ]
 
 const ROTATE_MS = 4200

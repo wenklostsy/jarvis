@@ -32,6 +32,7 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
+import { REPORT_DIR } from './reports.mjs'
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
 
@@ -693,6 +694,23 @@ const handleRequest = async (req, res) => {
     return res.end(JSON.stringify({ ok: true, tts: eleven, stt: eleven }))
   }
 
+  // Generated reports only: no user-controlled filesystem paths.
+  if (req.method === 'GET' && req.url?.startsWith('/reports/')) {
+    const name = req.url.slice('/reports/'.length)
+    if (!/^relatorio-[0-9a-f-]{36}\.docx$/.test(name)) {
+      res.writeHead(404, cors)
+      return res.end('Relatório não encontrado.')
+    }
+    try {
+      const bytes = await readFile(join(REPORT_DIR, name))
+      res.writeHead(200, { ...cors, 'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'content-disposition': `attachment; filename="${name}"`, 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' })
+      return res.end(bytes)
+    } catch {
+      res.writeHead(404, cors)
+      return res.end('Relatório não encontrado.')
+    }
+  }
+
   // Serve local image files to the page. Screenshots and generated art land on
   // disk as absolute paths, and a page served over http can't read file:// —
   // so the bridge, which can, hands them over.
@@ -1050,6 +1068,7 @@ wss.on('connection', (socket) => {
     ollamaConnection(socket)
     return
   }
+
   if (process.env.JARVIS_BRAIN === 'gemini') {
     geminiConnection(socket)
     return

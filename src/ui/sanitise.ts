@@ -217,16 +217,15 @@ export function sanitisePanelHtml(html: string): string {
   const doc = new DOMParser().parseFromString(
     DOMPurify.sanitize(html, {
       ALLOWED_TAGS: [
-        'div', 'span', 'p', 'ul', 'ol', 'li', 'img', 'b', 'strong', 'em', 'i',
+        'div', 'span', 'p', 'ul', 'ol', 'li', 'img', 'b', 'strong', 'em', 'i', 'a',
         'br', 'small', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'code', 'pre',
         // Showing a video result as a line of text was the polite version of
         // refusing to answer.
         'video', 'source', 'iframe',
       ],
-      // No href — a HUD panel isn't clickable, and it keeps navigation off the
-      // table entirely.
+      // Research panels include source links and generated Word downloads.
       ALLOWED_ATTR: [
-        'class', 'src', 'alt', 'style',
+        'class', 'src', 'alt', 'style', 'href',
         'controls', 'poster', 'loop', 'muted', 'playsinline', 'preload',
         'width', 'height', 'allow', 'allowfullscreen', 'referrerpolicy',
         'type', 'title',
@@ -255,6 +254,12 @@ export function sanitisePanelHtml(html: string): string {
     }),
     'text/html',
   )
+  doc.body.querySelectorAll('a').forEach((link) => {
+    const href = link.getAttribute('href') || ''
+    if (!/^https?:\/\//i.test(href)) link.removeAttribute('href')
+    link.setAttribute('target', '_blank')
+    link.setAttribute('rel', 'noopener noreferrer')
+  })
   /**
    * `style` survives only for the --v custom property the progress bar uses.
    *
