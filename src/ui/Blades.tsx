@@ -1,3 +1,4 @@
+import { ResearchResult } from './ResearchResult'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore, type Blade } from '../store'
@@ -158,6 +159,7 @@ const CameraView = memo(function CameraView() {
 })
 
 const Body = memo(function Body({ blade }: { blade: Blade }) {
+  if (blade.research) return <ResearchResult result={blade.research} />
   if (blade.kind === 'camera') return <CameraView />
 
   if (blade.kind === 'article' && blade.url) {
@@ -368,6 +370,7 @@ function Card({
    * keeps its wheel and its ability to select text.
    */
   const onBodyDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button,a,summary')) return
     if (e.pointerType !== 'touch') return
     if (!focused) onFocus()
     if (expanded) return

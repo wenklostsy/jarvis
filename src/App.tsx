@@ -1,3 +1,5 @@
+import { watchResultActions, runResultAction, parseResultVoiceCommand, type ResearchAction } from './lib/research-actions'
+import { bridgeDiagnostics } from './lib/bridge'
 import { useEffect, useRef } from 'react'
 import { Scene } from './scene/Scene'
 import { Hud } from './ui/Hud'
@@ -6,7 +8,7 @@ import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
-import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
+import { createSpeaker, cycleVoice, currentVoiceName, diag as ttsDiag } from './lib/tts'
 import * as sfx from './lib/sfx'
 import * as music from './lib/music'
 import * as hands from './lib/hands'
@@ -94,8 +96,8 @@ export default function App() {
     idleTimer.current = null
   }
 
-  const silence = () => {
-    speaker.current?.cancel()
+  const silence = (reason = 'cancelled') => {
+    speaker.current?.cancel(reason)
     speaker.current = null
   }
 
@@ -124,7 +126,14 @@ export default function App() {
 
   // -- one turn -------------------------------------------------------------
 
-  const respond = async (said: string): Promise<void> => {
+  const respond = async (said: string, action?: ResearchAction): Promise<void> => {
+    if (!action) {
+      const operation = parseResultVoiceCommand(said)
+      const state = store.getState()
+      const result = (state.blades.find((b) => b.id === state.focusedBlade && b.research) || [...state.blades].reverse().find((b) => b.research))?.research
+      if (operation && result) { await runResultAction({ operation, result }); return }
+    }
+    silence('superseded')
     const mine = ++turn.current
     const stale = () => mine !== turn.current
 
@@ -138,7 +147,7 @@ export default function App() {
     s.pushTurn({ id: newId(), role: 'user', text: said })
     s.setPhase('thinking')
 
-    const spk = createSpeaker()
+    const spk = createSpeaker('turn-' + mine)
     speaker.current = spk
     sfx.duck(true)
     music.duck(true)
@@ -146,11 +155,22 @@ export default function App() {
     const turnId = newId()
     let started = false
     let filled = false
+    let presentationOwnsCleanup = false
+    const releasePresentation = () => {
+      if (stale()) return
+      speaker.current = null
+      sfx.duck(false)
+      music.duck(false)
+      store.getState().setActiveTool(null)
+      music.working(false)
+      listen(FOLLOW_UP_MS)
+    }
 
     try {
       const { text } = await ask(said, history.current, {
         onText: (delta) => {
           if (stale()) return
+          if (usingBridge) ttsDiag.request = bridgeDiagnostics.request
           if (!started) {
             started = true
             store.getState().setPhase('speaking')
@@ -165,6 +185,7 @@ export default function App() {
         },
         onTool: (name) => {
           if (stale()) return
+          if (usingBridge) ttsDiag.request = bridgeDiagnostics.request
           // Only claim the tooling phase while he has nothing to say yet.
           // Setting it unconditionally pinned the machine in 'tooling' for the
           // rest of any answer that called a tool after it started talking,
@@ -181,7 +202,7 @@ export default function App() {
             spk.say(forTool(name))
           }
         },
-      })
+      }, action)
 
       if (stale()) return
 
@@ -195,9 +216,10 @@ export default function App() {
         }
       }
 
-      await spk.end()
-      if (stale()) return
-      sfx.play('done')
+      // Execution is complete. Presentation has its own terminal path and
+      // never owns the bridge request or prevents another command.
+      presentationOwnsCleanup = true
+      void spk.end().then(() => { if (!stale()) sfx.play('done') }, () => spk.cancel('engine-error')).finally(releasePresentation)
     } catch (err) {
       if (stale()) return
       console.error(err)
@@ -206,7 +228,8 @@ export default function App() {
         .getState()
         .setError(err instanceof Error ? err.message : 'Something went wrong.')
     } finally {
-      if (!stale()) {
+      if (!presentationOwnsCleanup && !stale()) {
+        spk.cancel('execution-error')
         speaker.current = null
         sfx.duck(false)
         music.duck(false)
@@ -218,6 +241,28 @@ export default function App() {
       }
     }
   }
+
+  useEffect(() => watchResultActions(async ({ operation, result }) => {
+    if (operation === 'stop') {
+      const executing = bridgeDiagnostics.frontend === 'executing'
+      silence('user-stop')
+      if (!executing) { turn.current++; listen(FOLLOW_UP_MS) }
+      return
+    }
+    if (store.getState().phase === 'offline' || store.getState().phase === 'boot') throw new Error('Ative o JARVIS.')
+    if (operation === 'listen') {
+      clearIdle(); silence(); interrupt()
+      const mine = ++turn.current
+      const spk = createSpeaker('research-' + result.id)
+      speaker.current = spk
+      store.getState().setPhase('speaking')
+      spk.push(result.spokenSummary)
+      try { await spk.end() }
+      finally { if (mine === turn.current) { speaker.current = null; listen(FOLLOW_UP_MS) } }
+      return
+    }
+    await respond(operation === 'report' ? 'Gere um relatório dessa pesquisa.' : 'Pesquise novamente.', { operation, researchId: result.id })
+  }))
 
   // -- voice events ---------------------------------------------------------
 
@@ -251,6 +296,7 @@ export default function App() {
       return
     }
 
+    silence()
     store.getState().setPhase('waking')
 
     // Answer to his name. Deliberately NOT awaited any more: the microphone is
@@ -276,7 +322,7 @@ export default function App() {
     const wasBusy =
       phase === 'thinking' || phase === 'tooling' || phase === 'speaking'
 
-    silence()
+    silence('barge-in')
     if (wasBusy) {
       // Abandon the answer in flight. The turn counter moves in respond()'s
       // replacement; bumping it here covers the case where nothing replaces it.

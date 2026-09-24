@@ -17,7 +17,7 @@ export function ollamaConnection(socket) {
 
   async function answer(id, text, context) {
     const controller = context.controller
-    const localResult = await local.tryHandle(text, context)
+    const localResult = context.action ? await research.action(context.action, context) : await local.tryHandle(text, context)
     context.signal.throwIfAborted()
     if (localResult !== null) {
       history.push({ role: 'user', content: text }, { role: 'assistant', content: localResult })

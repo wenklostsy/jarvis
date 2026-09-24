@@ -35,6 +35,7 @@ type VoiceDiag = {
 }
 
 type TtsDiag = {
+  request: string; state: string; responseLength: number; segments: number; currentSegment: number; queued: number; startedAt: number; endedAt: number; reason: string; controllerActive: boolean
   engine: string
   spoken: number
   started: number
@@ -117,6 +118,11 @@ export function Diagnostics() {
       <Row k="instância" v={b.instance} />
       <Row k="iniciado em" v={b.startedAt} />
       <Row k="solicitação" v={b.request + ' · ' + b.state} />
+      <Row k="pesquisa / modelo" v={b.research + ' / ' + b.modelState} />
+      <Row k="frontend / fila" v={b.frontend + ' / ' + b.queueDepth} />
+      <Row k="controller execução" v={String(b.controllerActive)} />
+      <Row k="resultado caracteres" v={String(b.responseLength)} />
+      <Row k="conclusão execução" v={b.completedAt ? new Date(b.completedAt).toLocaleTimeString() : '—'} />
       <Row k="último erro" v={b.lastError || '—'} bad={Boolean(b.lastError)} />
       <Row k="API reconhecimento" v={'SpeechRecognition' in window || 'webkitSpeechRecognition' in window ? 'presente; acesso depende do navegador' : 'ausente; verificar serviço alternativo'} />
       <Row k="API síntese" v={'speechSynthesis' in window ? 'presente; áudio não confirmado' : 'ausente; verificar serviço alternativo'} />
@@ -137,6 +143,14 @@ export function Diagnostics() {
       <Row k="error" v={v.lastError ? 'falha no reconhecimento' : '—'} bad={Boolean(v.lastError)} />
 
       <div className="diag-sec">SPEAKING · press T to test</div>
+      <Row k="pedido TTS" v={t.request || '—'} />
+      <Row k="estado TTS" v={t.state || 'idle'} />
+      <Row k="fala caracteres" v={String(t.responseLength ?? 0)} />
+      <Row k="segmento / total" v={(t.currentSegment ?? 0) + ' / ' + (t.segments ?? 0)} />
+      <Row k="fila TTS" v={String(t.queued ?? 0)} />
+      <Row k="controller TTS" v={String(t.controllerActive ?? false)} />
+      <Row k="início / fim" v={(t.startedAt ? new Date(t.startedAt).toLocaleTimeString() : '—') + ' / ' + (t.endedAt ? new Date(t.endedAt).toLocaleTimeString() : '—')} />
+      <Row k="interrupção" v={t.reason || '—'} />
       <Row k="engine" v={String(t.engine ?? 'system')} />
       <Row k="voice" v={String(t.voice || '—')} />
       <Row k="handed to OS" v={String(t.spoken ?? 0)} />

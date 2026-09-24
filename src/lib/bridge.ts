@@ -1,3 +1,4 @@
+import type { ResearchAction } from './research-actions'
 import type { AskHandlers } from './anthropic'
 import type { Blade, Panel } from '../store'
 import { BRIDGE_WS_URL } from '../config'
@@ -19,6 +20,12 @@ import { BRIDGE_WS_URL } from '../config'
 /** Anything the bridge sends. Deliberately loose — a frame from a future
  *  bridge build should be ignored, not crash the turn. */
 type Frame = {
+  stage?: string
+  count?: number
+  current?: number
+  responseLength?: number
+  controllerActive?: boolean
+  queueDepth?: number
   state?: string
   protocol?: number
   backend?: string
@@ -48,6 +55,7 @@ type Frame = {
 
 /** Every question gets an id so its answer can be told from anyone else's. */
 export const bridgeDiagnostics = {
+  research: 'idle', modelState: 'idle', responseLength: 0, queueDepth: 0, controllerActive: false, completedAt: 0, frontend: 'idle',
   backend: 'não informado', model: 'não informado', ollama: 'não verificado',
   sourceStatus: 'não informado', revision: 'servidor sem identificação', instance: '—', startedAt: '—',
   connection: 'desconectado', request: '—', state: 'idle', lastError: '',
@@ -199,6 +207,12 @@ function dispatch(ws: WebSocket) {
         if (typeof msg[key] === 'string') bridgeDiagnostics[key] = msg[key]
       }
       return
+    }
+    if (msg.ask && msg.ask === bridgeDiagnostics.request) {
+      if (msg.type === 'request') { bridgeDiagnostics.state = msg.state ?? 'running'; bridgeDiagnostics.queueDepth = msg.queueDepth ?? 0; bridgeDiagnostics.controllerActive = msg.controllerActive ?? false }
+      if (msg.stage) { bridgeDiagnostics.research = msg.stage; bridgeDiagnostics.modelState = msg.stage === 'synthesizing' ? 'generating' : 'idle' }
+      if (msg.responseLength !== undefined) bridgeDiagnostics.responseLength = msg.responseLength
+      if (msg.type === 'done' || msg.type === 'error') { bridgeDiagnostics.completedAt = Date.now(); bridgeDiagnostics.controllerActive = false; bridgeDiagnostics.modelState = 'idle' }
     }
     if (['panel', 'blade', 'ui', 'capture', 'request', 'progress'].includes(msg.type ?? '')) {
       if (!activeAsk || (msg.ask ? msg.ask !== activeAsk : protocol >= 2)) return
@@ -363,6 +377,7 @@ let pending: { id: string; finish: (fallback?: string) => void } | null = null
 export async function ask(
   prompt: string,
   handlers: AskHandlers,
+  action?: ResearchAction,
 ): Promise<{ text: string; tools: string[] }> {
   /**
    * A new question supersedes the one in flight.
@@ -393,6 +408,9 @@ export async function ask(
   const id = `a${++askSeq}`
   activeAsk = id
   bridgeDiagnostics.request = id
+  bridgeDiagnostics.frontend = 'executing'
+  bridgeDiagnostics.research = 'idle'
+  bridgeDiagnostics.completedAt = 0
   bridgeDiagnostics.state = 'connecting'
   let cancelledWhileDialling = false
   pending = {
@@ -425,6 +443,7 @@ export async function ask(
 
     const cleanup = () => {
       done = true
+      bridgeDiagnostics.frontend = 'released'
       if (pending?.id === id) { pending = null; activeAsk = null }
       clearTimeout(timer)
       ws.removeEventListener('message', onMessage)
@@ -487,6 +506,12 @@ export async function ask(
             handlers.onText(msg.delta ?? '')
             break
 
+          case 'progress': {
+            const label = researchProgressLabel(msg)
+            if (label) handlers.onTool(label)
+            break
+          }
+
           case 'tool':
             if (!msg.name) break
             tools.push(msg.name)
@@ -527,7 +552,7 @@ export async function ask(
     arm()
 
     try {
-      ws.send(JSON.stringify({ type: 'ask', text: prompt, id }))
+      ws.send(JSON.stringify({ type: 'ask', text: prompt, id, ...(action ? { action } : {}) }))
     } catch (err) {
       // The socket can go into CLOSING between connect() resolving and here.
       fail(err instanceof Error ? err : new Error(String(err)))
@@ -561,4 +586,9 @@ function prettyToolName(raw: string): string {
   if (!raw.startsWith('mcp__')) return raw
   const [, server, ...rest] = raw.split('__')
   return `${server} · ${rest.join(' ').replace(/_/g, ' ')}`
+}
+
+function researchProgressLabel(msg: Frame): string | null {
+  const labels: Record<string, string> = { searching: 'Pesquisando fontes…', found: 'Fontes selecionadas: ' + (msg.count ?? 0), reading: 'Fontes lidas: ' + (msg.current ?? 0) + ' de ' + (msg.count ?? 0), synthesizing: 'Preparando síntese…', reporting: 'Gerando Word…', completed: 'Pesquisa concluída.', failed: 'Pesquisa não concluída.' }
+  return msg.stage ? labels[msg.stage] ?? null : null
 }

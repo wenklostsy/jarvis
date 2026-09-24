@@ -1898,3 +1898,9 @@ kbd {
   transform: scaleX(-1);
   background: #000;
 }
+
+.research-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+.research-actions button { color: inherit; background: rgba(10, 70, 75, .35); border: 1px solid var(--accent, #19d8d2); border-radius: 4px; padding: .5rem .65rem; cursor: pointer; font: inherit; }
+.research-actions button:disabled { opacity: .5; cursor: wait; }
+.research-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.research-result details { margin-top: 1rem; }

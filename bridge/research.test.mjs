@@ -28,7 +28,7 @@ test('research propagates request cancellation and never publishes late panels o
   research.close(); q.close()
 })
 
-const result = '<html><body><div class="result"><a class="result__a" href="https://example.com/article">Fonte &amp; título</a><div class="result__snippet">Informação para pesquisa</div></div></body></html>'
+const result = '<html><body><div class="result"><a class="result__a" href="https://example.com/article">Fonte &amp; título</a><div class="result__snippet">Informação para pesquisa do tema</div></div></body></html>'
 const request = async (url) => {
   if (url.includes('google.com/search')) return { text: '<html>Captcha</html>', type: 'text/html' }
   if (url.includes('duckduckgo')) return { text: result, type: 'text/html' }

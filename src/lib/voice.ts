@@ -218,7 +218,7 @@ function makeAssembler(h: {
       // The caption shows the whole thought as it assembles, not just the
       // fragment that happened to arrive last.
       h.partial(held)
-      diag.holding = held
+      diag.holding = held ? '[segmento em montagem]' : ''
       clear()
 
       // Already talking again. Decide nothing now — the next transcript is
@@ -478,7 +478,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
         return
       }
 
-      diag.heard = said
+      diag.heard = '[segmento reconhecido]'
       diag.heardAt = Date.now()
 
       if (mode === 'wake') {
@@ -489,7 +489,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
           diag.accepted++
           h.onWake(afterWake(said))
         } else {
-          drop(`heard "${said.slice(-40)}" — not his name`)
+          drop('wake word not detected')
         }
         return
       }
@@ -655,7 +655,7 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
       drop('echo of his own voice')
       return
     }
-    diag.heard = text
+    diag.heard = '[segmento reconhecido]'
     diag.heardAt = Date.now()
     if (mode === 'wake') {
       assemble.cancel()
@@ -666,7 +666,7 @@ function startBrowserVoice(h: VoiceHandlers): Voice {
         diag.accepted++
         h.onWake(afterWake(text))
       } else {
-        drop(`heard "${text.slice(-40)}" — not his name`)
+        drop('wake word not detected')
       }
       return
     }

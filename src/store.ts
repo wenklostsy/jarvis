@@ -1,3 +1,4 @@
+import type { ResearchResult } from './lib/research-actions'
 import { create } from 'zustand'
 
 export type Phase =
@@ -45,6 +46,7 @@ export type Blade = {
   /** gallery. */
   images?: string[]
   /** markup — sanitised exactly as a panel body is. */
+  research?: ResearchResult
   html?: string
   /** article only: the words restyled, or the real page. */
   mode?: 'reader' | 'live'

@@ -4,6 +4,12 @@ Proposta de 23 de setembro de 2026 para revisão de Matheus Ribeiro.
 
 Base: [estado real auditado](ESTADO_ATUAL.md), commit `7738d33`. O Jarvis web deste workspace é a base principal. O material Python permanece separado. Este documento propõe trabalho; não autoriza mudanças estruturais, instalações externas ou publicação.
 
+## Atualização — Etapa 1B implementada
+
+A Etapa 1B foi autorizada e implementada após a 1A. Foi reproduzida em teste uma falha de SpeechSynthesis iniciado sem evento de fim, deixando a apresentação pendente; execução e leitura agora são independentes, com cancelamento e liberação do TTS. Resultados estruturados incluem resumo falável, conteúdo completo, fontes e artefatos, com ações no blade existente. Foram acrescentados progresso real, filtros de relevância, tratamento de evidência insuficiente, metadados de vídeo e validação estrutural de citações. Consulte [implementação da Etapa 1B](ETAPA_1B.md) para causa, arquivos, limites e roteiro manual.
+
+Validação: **43 testes aprovados**, build aprovado e lint com zero erros e os dois avisos anteriores. Ainda falta validação real de microfone, áudio, navegador, Ollama, relevância dos buscadores e layout no Word. A causa específica no computador do usuário não foi confirmada por captura de uma sessão real. Etapa 1C e integrações futuras não foram iniciadas. As seções anteriores abaixo preservam o histórico da auditoria e do planejamento.
+
 ## Situação após a Etapa 1A
 
 Etapa 1A implementada por autorização posterior do usuário: fila e cancelamento por pedido, correlação de eventos, lançamentos sem confirmação inventada e diagnóstico ampliado. Validação automatizada: 28 testes aprovados, build aprovado e lint sem erros. Consulte [entrega e limites](ETAPA_1A.md). Validação manual no computador ainda pendente. Etapas 1B e 1C não foram iniciadas. O contrato geral de ferramentas e as extrações estruturais permanecem propostas futuras.
@@ -36,7 +42,7 @@ Mostrar no diagnóstico o backend/modelo ativo, disponibilidade de voz, estado d
 
 Aceite: comandos cancelados não executam posteriormente; falha não bloqueia toda a fila; cada resposta/evento fica vinculado ao pedido correto; os testes existentes continuam passando.
 
-### Incremento 1B pesquisa e relatórios
+### Incremento 1B pesquisa e relatórios — implementado com validação simulada
 
 Separar abrir uma busca, obter resultados, ler uma página e resumir evidências. Avaliar consultas reais em português, incluindo vídeos. Não usar a simples presença de cinco URLs como critério de sucesso. Verificar relevância, anúncios, fonte original, bloqueio de leitura e índices de citações. Apresentar progresso em operações longas.
 
@@ -117,4 +123,4 @@ Aceite inicial do módulo: um acervo pequeno de teste pode ser restaurado em amb
 
 ## Decisão solicitada
 
-Validar manualmente a **Etapa 1A** entregue e aprovar ou ajustar o escopo da **Etapa 1B** antes de sua implementação. A proposta preserva o Jarvis existente e resolve as falhas que hoje atrapalham seu uso. Extração de módulos, memória, novas integrações e Legacy permanecem aguardando suas aprovações nas etapas correspondentes.
+Validar manualmente as **Etapas 1A e 1B** entregues antes de ampliar o escopo. A Etapa 1C e as integrações posteriores requerem nova aprovação. A proposta preserva o Jarvis existente e resolve as falhas que hoje atrapalham seu uso. Extração de módulos, memória, novas integrações e Legacy permanecem aguardando suas aprovações nas etapas correspondentes.

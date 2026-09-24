@@ -3,6 +3,12 @@
 Auditoria de 23 de setembro de 2026, preparada para Matheus Ribeiro.
 
 
+## Atualização — Etapa 1B implementada
+
+A Etapa 1B foi autorizada e implementada após a 1A. Foi reproduzida em teste uma falha de SpeechSynthesis iniciado sem evento de fim, deixando a apresentação pendente; execução e leitura agora são independentes, com cancelamento e liberação do TTS. Resultados estruturados incluem resumo falável, conteúdo completo, fontes e artefatos, com ações no blade existente. Foram acrescentados progresso real, filtros de relevância, tratamento de evidência insuficiente, metadados de vídeo e validação estrutural de citações. Consulte [implementação da Etapa 1B](ETAPA_1B.md) para causa, arquivos, limites e roteiro manual.
+
+Validação: **43 testes aprovados**, build aprovado e lint com zero erros e os dois avisos anteriores. Ainda falta validação real de microfone, áudio, navegador, Ollama, relevância dos buscadores e layout no Word. A causa específica no computador do usuário não foi confirmada por captura de uma sessão real. Etapa 1C e integrações futuras não foram iniciadas. As seções anteriores abaixo preservam o histórico da auditoria e do planejamento.
+
 ## Atualização — Etapa 1A implementada
 
 A implementação incremental de execução e diagnóstico foi autorizada e concluída após a auditoria abaixo. Veja [entrega da Etapa 1A](ETAPA_1A.md) para estados, cancelamento, arquivos, testes e limitações. A03/A07/A09 receberam correções e A08 recebeu propagação do sinal de rede. Resultado: 28 testes passaram; build passou; lint sem erros, com dois avisos anteriores. A validação manual de voz e aplicativos continua pendente. A auditoria abaixo preserva o snapshot histórico anterior às correções.

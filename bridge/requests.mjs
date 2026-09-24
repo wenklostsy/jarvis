@@ -8,7 +8,7 @@ export function createRequests(write, { timeoutMs = 180_000, drainOnCancel = fal
   const seen = new Set()
   let tail = Promise.resolve()
   let closed = false
-  const emit = (r, state) => write({ type: 'request', ask: r.id, state })
+  const emit = (r, state) => write({ type: 'request', ask: r.id, state, queueDepth: [...requests.values()].filter((item) => !item.finished && !item.signal.aborted && item.id !== r.id).length, controllerActive: state === 'running' })
   const send = (message) => {
     const r = scope.getStore()
     if (closed || (r && (r.signal.aborted || r.finished))) return
@@ -81,7 +81,7 @@ export function bindRequests(socket, requests, answer, close) {
     try { message = JSON.parse(raw.toString()) } catch { return }
     if (message.type === 'interrupt') requests.cancel(message.ask ?? message.id)
     else if (message.type === 'ask' && typeof message.text === 'string') {
-      void requests.enqueue(message.id, (context) => answer(context.id, message.text, context))
+      void requests.enqueue(message.id, (context) => answer(context.id, message.text, Object.assign(context, { action: message.action })))
     }
   })
   socket.on('close', () => { requests.close(); close?.() })

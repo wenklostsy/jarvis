@@ -18,13 +18,14 @@ export async function writeReport(data, directory = REPORT_DIR) {
     ...data.summary.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/^#{1,6}\s+/gm, '').split(/\n+/).filter(Boolean).map((line) => paragraph(line, /^(?:Conclusão|Evidências|Limitações)[:\s]*$/i.test(line) ? { heading: HeadingLevel.HEADING_2 } : {})),
     paragraph('Método e limitações', { heading: HeadingLevel.HEADING_1 }),
     paragraph(`Consulta realizada por ${data.provider}, com ${data.sources.length} fontes. O conteúdo disponível pode ser parcial, desatualizado ou exigir verificação adicional. ${data.synthesis ? 'A síntese foi gerada automaticamente a partir do conteúdo coletado.' : 'Não foi possível gerar uma síntese; este documento apresenta apenas os resultados coletados.'}`),
+    ...(data.limitations || []).map((text) => paragraph(text)),
     paragraph('Fontes para conferência', { heading: HeadingLevel.HEADING_1 }),
   ]
   data.sources.forEach((source, i) => {
     children.push(paragraph(`[${i + 1}] ${source.title || source.url}`, { keepNext: true }))
     const label = new URL(source.url).hostname + new URL(source.url).pathname
     children.push(new Paragraph({ keepNext: true, children: [new ExternalHyperlink({ link: source.url, children: [new TextRun({ text: label.length > 110 ? `${label.slice(0, 107)}...` : label, style: 'Hyperlink' })] })], spacing: { after: 100 } }))
-    children.push(paragraph(source.status))
+    children.push(paragraph(`${source.status}. Publicação: ${source.publishedAt ? new Date(source.publishedAt).toLocaleDateString('pt-BR') : 'não informada'}.`))
   })
   const doc = new Document({
     creator: 'JARVIS', title: `Pesquisa sobre ${title}`, description: 'Relatório para revisão de Matheus Ribeiro',

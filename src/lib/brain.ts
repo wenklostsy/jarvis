@@ -1,3 +1,4 @@
+import type { ResearchAction } from './research-actions'
 import { BACKEND } from '../config'
 import * as direct from './anthropic'
 import * as bridge from './bridge'
@@ -28,9 +29,10 @@ export async function ask(
   prompt: string,
   history: Msg[],
   handlers: AskHandlers,
+  action?: ResearchAction,
 ): Promise<{ text: string; tools: string[] }> {
   return usingBridge
-    ? bridge.ask(prompt, handlers)
+    ? bridge.ask(prompt, handlers, action)
     : direct.ask([...history, { role: 'user', content: prompt }], handlers)
 }
 
