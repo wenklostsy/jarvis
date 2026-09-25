@@ -38,6 +38,7 @@ export type Panel = {
  * other, and can be pulled forward or thrown full screen by the user.
  */
 export type Blade = {
+  visibility?: 'open' | 'minimized' | 'closed'
   id: string
   title: string
   kind: 'article' | 'image' | 'gallery' | 'video' | 'embed' | 'markup' | 'camera'
@@ -55,6 +56,9 @@ export type Blade = {
 }
 
 export type Turn = {
+  presentation?: 'conversation' | 'notice'
+  researchId?: string
+  error?: boolean
   id: string
   role: 'user' | 'jarvis'
   text: string
@@ -219,6 +223,15 @@ type State = {
   /** What JARVIS is currently reading aloud or has just said. */
   caption: string
   turns: Turn[]
+  historyOpen: boolean
+  activeResearchId: string | null
+  interactionResearchId: string | null
+  notice: { id: string; text: string } | null
+  toggleHistory: () => void
+  notify: (text: string) => void
+  dismissNotice: (id: string) => void
+  minimizeBlade: (id: string) => void
+  reopenBlade: (id: string) => void
   activeTool: string | null
   error: string | null
   connected: string[]
@@ -261,6 +274,7 @@ type State = {
   setError: (e: string | null) => void
   setConnected: (c: string[]) => void
   pushTurn: (t: Turn) => void
+  completeTurn: (id: string) => void
   appendToLastTurn: (text: string) => void
 
   applyUi: (patch: UiPatch) => void
@@ -277,6 +291,12 @@ export const useStore = create<State>((set) => ({
   level: 0,
   caption: '',
   turns: [],
+  historyOpen: false, activeResearchId: null, interactionResearchId: null, notice: null,
+  toggleHistory: () => set(s => ({ historyOpen: !s.historyOpen })),
+  notify: (text) => set({ notice: { id: crypto.randomUUID(), text } }),
+  dismissNotice: (id) => set(s => s.notice?.id === id ? { notice: null } : {}),
+  minimizeBlade: (id) => set(s => ({ blades: s.blades.map(b => b.id === id ? { ...b, visibility: 'minimized' as const } : b), expandedBlade: s.expandedBlade === id ? null : s.expandedBlade })),
+  reopenBlade: (id) => set(s => ({ blades: s.blades.map(b => b.id === id ? { ...b, visibility: 'open' as const } : b), focusedBlade: id, activeResearchId: s.blades.find(b => b.id === id)?.research?.id || s.activeResearchId })),
   activeTool: null,
   error: null,
   connected: [],
@@ -315,25 +335,25 @@ export const useStore = create<State>((set) => ({
     set((s) => ({ panels: s.panels.filter((p) => p.hold === 'sticky') })),
 
   /**
-   * Six is the ceiling, and it is about the stack reading as a stack: past
-   * about six the ones at the back are a millimetre of edge each and the depth
-   * stops meaning anything. The oldest falls off, which is also the one the
-   * user has had longest to look at.
+   * Research records survive visual dismissal (up to the backend's ten-result
+   * session window); other surfaces retain the previous six-record ceiling.
+   * Visibility is separate from the explicitly selected research identity.
    */
   pushBlade: (blade) =>
     set((s) => {
-      const next = [...s.blades.filter((b) => b.id !== blade.id), blade].slice(-6)
-      // A new blade comes to the front. Leaving the old focus in place would
-      // open something the user asked for and then hide it behind what they
-      // were looking at before.
-      return { blades: next, focusedBlade: blade.id }
+      const previous = s.blades.find(b => b.id === blade.id)
+      const next = [...s.blades.filter(b => b.id !== blade.id), { ...blade, visibility: previous?.visibility || 'open' as const }]
+      const research = next.filter(b => b.research).slice(-10)
+      const other = next.filter(b => !b.research).slice(-6)
+      return { blades: next.filter(b => research.includes(b) || other.includes(b)), focusedBlade: blade.id,
+        activeResearchId: blade.research?.id || s.activeResearchId,
+        interactionResearchId: blade.research?.id || s.interactionResearchId }
     }),
-  closeBlade: (id) =>
-    set((s) => ({
-      blades: s.blades.filter((b) => b.id !== id),
-      focusedBlade: s.focusedBlade === id ? null : s.focusedBlade,
-      expandedBlade: s.expandedBlade === id ? null : s.expandedBlade,
-    })),
+  closeBlade: (id) => set(s => ({
+    blades: s.blades.flatMap(b => b.id !== id ? [b] : b.research ? [{ ...b, visibility: 'closed' as const }] : []),
+    focusedBlade: s.focusedBlade === id && !s.blades.find(b => b.id === id)?.research ? null : s.focusedBlade,
+    expandedBlade: s.expandedBlade === id ? null : s.expandedBlade,
+  })),
   // Same contract as panels: 'turn' blades go when the user speaks again,
   // 'sticky' ones stay until something replaces them.
   clearBlades: () =>
@@ -346,15 +366,20 @@ export const useStore = create<State>((set) => ({
         expandedBlade: s.expandedBlade && alive.has(s.expandedBlade) ? s.expandedBlade : null,
       }
     }),
-  focusBlade: (focusedBlade) => set({ focusedBlade }),
+  focusBlade: (focusedBlade) => set(s => ({ focusedBlade, activeResearchId: s.blades.find(b => b.id === focusedBlade)?.research?.id || s.activeResearchId })),
   expandBlade: (expandedBlade) => set({ expandedBlade }),
   setPhase: (phase) => set({ phase }),
   setLevel: (level) => set({ level }),
   setCaption: (caption) => set({ caption }),
   setActiveTool: (activeTool) => set({ activeTool }),
-  setError: (error) => set({ error }),
+  setError: (error) => set(s => ({ error, ...(error ? { turns: [...s.turns.slice(-40), { id: crypto.randomUUID(), role: 'jarvis' as const, text: error, error: true, presentation: 'notice' as const }], notice: { id: crypto.randomUUID(), text: 'Atenção: consulte o histórico ou diagnóstico.' } } : {}) })),
   setConnected: (connected) => set({ connected }),
-  pushTurn: (turn) => set((s) => ({ turns: [...s.turns.slice(-40), turn] })),
+  pushTurn: (turn) => set((s) => ({ turns: [...s.turns.slice(-40), turn], ...(turn.role === 'user' ? { interactionResearchId: null } : {}), ...(turn.presentation === 'notice' && turn.text ? { notice: { id: turn.id, text: turn.researchId ? 'Resultado disponível no painel da pesquisa.' : turn.text.slice(0, 140) } } : {}) })),
+  completeTurn: (id) => set(s => {
+    const turn = s.turns.find(t => t.id === id)
+    if (!turn || turn.presentation !== 'notice' || !turn.text) return {}
+    return { notice: { id, text: turn.researchId ? 'Resultado disponível no painel da pesquisa.' : turn.text.length > 140 ? turn.text.slice(0, 140) + '…' : turn.text } }
+  }),
   appendToLastTurn: (text) =>
     set((s) => {
       const turns = [...s.turns]

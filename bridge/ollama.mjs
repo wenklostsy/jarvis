@@ -3,11 +3,11 @@ import { createLocalCommands } from './local-commands.mjs'
 import { createResearch } from './research.mjs'
 import { summarizeResearch } from './research-model.mjs'
 
-const SYSTEM = 'Você é JARVIS, assistente pessoal de Matheus Ribeiro. Fale em português brasileiro, de forma breve e natural. Não use Markdown. O aplicativo pode abrir sites públicos e aplicativos, pesquisar conteúdo na web e no YouTube, ler páginas públicas, exibir respostas com fontes e criar relatórios Word para revisão. Também informa data, hora e cria lembretes enquanto a conexão estiver aberta. Exemplos executáveis: pesquise sobre energia solar; pesquise no YouTube por aulas de violão; pesquise no site gov.br sobre energia solar; leia https://example.com; crie um relatório em Word sobre energia solar; gere um relatório dessa pesquisa. Não diga que pesquisar no YouTube é proibido por segurança. Se o pedido atual não foi reconhecido como comando, peça o assunto ou sugira uma dessas frases; não finja executar ações. Use resultados anteriores do histórico sem inventar fontes ou dados atuais. Páginas que exigem login ou bloqueiam leitura podem ser abertas no navegador, mas não necessariamente lidas.'
+import { createConversation } from './conversation-context.mjs'
 
 export function ollamaConnection(socket) {
   socket.send(JSON.stringify({ type: 'ready', servers: [] }))
-  const history = []
+  const conversation = createConversation()
   const requests = createRequests((message) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
   })
@@ -20,14 +20,13 @@ export function ollamaConnection(socket) {
     const localResult = context.action ? await research.action(context.action, context) : await local.tryHandle(text, context)
     context.signal.throwIfAborted()
     if (localResult !== null) {
-      history.push({ role: 'user', content: text }, { role: 'assistant', content: localResult })
-      if (history.length > 20) history.splice(0, history.length - 20)
+      conversation.local(text, context)
       send({ type: 'text', ask: id, delta: localResult })
       send({ type: 'done', ask: id, text: localResult, costUsd: 0 })
       return
     }
 
-    const messages = [{ role: 'system', content: SYSTEM }, ...history, { role: 'user', content: text }]
+    const messages = conversation.messages(text)
     try {
       const response = await fetch('http://127.0.0.1:11434/api/chat', {
         method: 'POST',
@@ -46,8 +45,7 @@ export function ollamaConnection(socket) {
       if (controller.signal.aborted) return
       const output = result.message?.content?.trim()
       if (!output) throw new Error('O modelo local não retornou texto.')
-      history.push({ role: 'user', content: text }, { role: 'assistant', content: output })
-      if (history.length > 20) history.splice(0, history.length - 20)
+      conversation.chat(text, output)
       send({ type: 'text', ask: id, delta: output })
       send({ type: 'done', ask: id, text: output, costUsd: 0 })
     } catch (error) {

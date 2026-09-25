@@ -27,6 +27,7 @@ test('result component routes controls to the selected result and exposes safe s
     sources: [{ title: 'Fonte', url: 'https://example.com/source', status: 'consultada' }, { title: 'Inválida', url: 'javascript:alert(1)', status: 'inválida' }],
     artifacts: [{ kind: 'docx', name: 'relatorio-00000000-0000-0000-0000-000000000000.docx' }], limitations: ['Revisar'], actions: ['listen', 'stop', 'retry', 'report'],
   }
+  result.artifacts.push({ ...result.artifacts[0] })
   const render = () => { index = 0; return ResearchResult({ result }) }
   const flatten = (node) => typeof node === 'object' && node ? [node, ...node.children.flatMap(flatten)] : []
   let nodes = flatten(render())
@@ -40,7 +41,9 @@ test('result component routes controls to the selected result and exposes safe s
   nodes = flatten(render())
   const links = nodes.filter((n) => n.type === 'a')
   assert.ok(links.some((n) => n.props.href === 'https://example.com/source' && n.props.rel === 'noopener noreferrer'))
-  assert.ok(links.some((n) => n.props.href.endsWith('.docx')))
+  assert.equal(links.filter((n) => n.props.href.endsWith('.docx')).length, 1)
+  assert.equal(actions.parseResultVoiceCommand('Gere um relatório dessa pesquisa.'), 'report')
+  assert.ok(sent.every(a => a.origin === 'button'))
   assert.ok(!links.some((n) => n.props.href.startsWith('javascript:')))
   assert.equal(actions.parseResultVoiceCommand('Ouvir resumo'), 'listen')
   assert.equal(actions.parseResultVoiceCommand('Pare a leitura.'), 'stop')

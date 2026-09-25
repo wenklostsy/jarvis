@@ -1,5 +1,13 @@
 # Estado real do Projeto JARVIS
 
+## Atualização — Etapa 1B.2
+
+HUD reorganizado com interação atual curta, histórico recolhível, resultados laterais e notificações temporárias. Fechar/minimizar pesquisa preserva seus dados e seu ID ativo. [Detalhes, arquivos, testes e limites](ETAPA_1B_2.md). Validação: **55 testes aprovados**, build/lint/diff-check aprovados (avisos antigos preservados); inspeção com fixtures nas três resoluções solicitadas. Próximo passo: validar a sequência por voz e o Word no uso real. **Etapa 1C não iniciada.**
+
+## Atualização — Hotfix 1B.1
+
+Validação: **50 testes aprovados**, build aprovado, lint sem erros (dois avisos anteriores) e diff-check aprovado. Hotfix localizado de contexto Ollama, seleção explícita pesquisa → Word, identidade/idempotência dos artefatos e diagnóstico. A lista de exemplos estava no prompt de produção. Veja [causas, correções, evidências e validação manual](ETAPA_1B_1.md) e [inventário das ocorrências](ORIGENS_1B_1.md). Etapa 1C permanece não iniciada; próximo passo é validar este hotfix no navegador com o modelo local.
+
 Auditoria de 23 de setembro de 2026, preparada para Matheus Ribeiro.
 
 

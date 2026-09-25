@@ -1904,3 +1904,40 @@ kbd {
 .research-actions button:disabled { opacity: .5; cursor: wait; }
 .research-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .research-result details { margin-top: 1rem; }
+/* Etapa 1B.2: session surfaces use the existing holographic palette. */
+.session-controls { position: fixed; top: 96px; left: 32px; z-index: 12; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: auto; max-width: 340px; }
+.session-controls button, .session-history button, .hud-interaction button, .hud-notice button { color: var(--accent); background: rgba(3,18,23,.94); border: 1px solid color-mix(in srgb,var(--accent) 45%,transparent); padding: 8px 10px; font: inherit; font-size: 11px; cursor: pointer; text-align: left; }
+.session-controls button[aria-expanded=true], .history-result[aria-pressed=true] { border-color: var(--accent); box-shadow: 0 0 12px color-mix(in srgb,var(--accent) 20%,transparent); }
+.session-controls button:focus-visible, .session-history button:focus-visible, .hud-interaction button:focus-visible, .hud-notice button:focus-visible, .bl-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.session-history button:disabled { opacity: .5; cursor: default; }
+.hud-interaction { position: fixed; bottom: 88px; left: 50%; transform: translateX(-50%); width: min(600px,44vw); max-height: 150px; overflow: auto; pointer-events: auto; padding: 12px; background: linear-gradient(90deg,transparent,rgba(0,12,18,.8),transparent); }
+.hud-interaction .log-line { margin: 6px 0; }
+.hud-interaction .log-text { font-size: 13px; overflow-wrap: anywhere; }
+.hud-live-caption { font-size: 12px; color: #fff; }
+.session-history { position: fixed; z-index: 15; left: 32px; top: 174px; bottom: 80px; width: min(350px,27vw); display: flex; flex-direction: column; pointer-events: auto; border: 1px solid color-mix(in srgb,var(--accent) 50%,transparent); background: rgba(3,14,22,.96); box-shadow: 0 0 24px color-mix(in srgb,var(--accent) 12%,transparent); }
+.session-history header { display: flex; align-items: center; gap: 6px; padding: 12px; border-bottom: 1px solid var(--accent); font-size: 11px; }
+.session-history header strong { flex: 1; }
+.session-history-scroll { overflow: auto; min-height: 0; padding: 14px; font-size: 13px; line-height: 1.6; text-transform: none; letter-spacing: normal; overflow-wrap: anywhere; }
+.session-history h2 { font-size: 11px; color: var(--accent); letter-spacing: .15em; margin: 16px 0 8px; }
+.session-history article { padding: 12px 0; border-bottom: 1px solid #20424a; }
+.session-history article strong { font-size: 10px; color: var(--accent); }
+.session-history p { white-space: pre-wrap; color: #d5e5e7; }
+.history-result { display: block; width: 100%; margin-bottom: 6px; overflow-wrap: anywhere; }
+.history-error { border-left: 2px solid #ff8b7f; padding-left: 8px !important; }
+.hud-notice { position: fixed; top: 94px; left: 50%; transform: translateX(-50%); z-index: 16; max-width: 360px; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-left: 2px solid var(--accent); background: rgba(3,18,23,.96); color: #d5e5e7; font-size: 12px; text-transform: none; letter-spacing: normal; pointer-events: auto; }
+.hud-result-stack:not(.blades-stack-full) { left: auto; right: 32px; top: 170px; bottom: 92px; width: min(450px,32vw); }
+.hud-result-stack:not(.blades-stack-full) .bl-slot { inset: 0; }
+.hud-result-stack:not(.blades-stack-full) .bl { width: 100%; height: 100%; max-width: 100%; max-height: 100%; }
+.hud-result-stack:not(.blades-stack-full) .bl:not(.bl-front) { visibility: hidden; pointer-events: none; }
+.hud-result-stack .bl-head { flex-wrap: wrap; min-height: 42px; }
+.hud-result-stack .bl-title { min-width: 0; flex: 1; }
+.research-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.research-actions button { white-space: normal; }
+@media (max-width: 1450px) { .session-controls { left: 22px; top: 86px; } .session-history { left: 22px; top: 168px; width: 310px; } .hud-result-stack:not(.blades-stack-full) { right: 22px; top: 166px; width: 360px; bottom: 84px; } .hud-interaction { width: 430px; bottom: 82px; max-height: 132px; } .hud-notice { max-width: 300px; } }
+.hud-interaction { max-height: none; overflow: visible; }
+.hud-interaction .log-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; text-transform: none; line-height: 1.45; letter-spacing: .02em; color: #d5e5e7; }
+.hud-interaction .log-user .log-text { -webkit-line-clamp: 1; }
+.session-controls button, .session-history button, .hud-interaction button, .hud-notice button { color: #78d9d6; }
+.research-result { color: #c6e2e3; }
+.research-result .research-actions button { color: #78d9d6; }
+.hud-result-stack .bl-title, .hud-result-stack .bl-btn { color: #78d9d6; }

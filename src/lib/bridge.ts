@@ -20,6 +20,7 @@ import { BRIDGE_WS_URL } from '../config'
 /** Anything the bridge sends. Deliberately loose — a frame from a future
  *  bridge build should be ignored, not crash the turn. */
 type Frame = {
+  reportResearchId?: string; researchId?: string; actionRequestId?: string; artifactId?: string; reportState?: string; origin?: string; sourceCount?: number
   stage?: string
   count?: number
   current?: number
@@ -55,6 +56,7 @@ type Frame = {
 
 /** Every question gets an id so its answer can be told from anyone else's. */
 export const bridgeDiagnostics = {
+  reportResearchId: '—', researchId: '—', actionRequestId: '—', artifactId: '—', reportState: 'idle', origin: '—', sourceCount: 0,
   research: 'idle', modelState: 'idle', responseLength: 0, queueDepth: 0, controllerActive: false, completedAt: 0, frontend: 'idle',
   backend: 'não informado', model: 'não informado', ollama: 'não verificado',
   sourceStatus: 'não informado', revision: 'servidor sem identificação', instance: '—', startedAt: '—',
@@ -209,6 +211,8 @@ function dispatch(ws: WebSocket) {
       return
     }
     if (msg.ask && msg.ask === bridgeDiagnostics.request) {
+      for (const key of ['reportResearchId', 'researchId', 'actionRequestId', 'artifactId', 'reportState', 'origin'] as const) { if (typeof msg[key] === 'string') bridgeDiagnostics[key] = msg[key] }
+      if (typeof msg.sourceCount === 'number') bridgeDiagnostics.sourceCount = msg.sourceCount
       if (msg.type === 'request') { bridgeDiagnostics.state = msg.state ?? 'running'; bridgeDiagnostics.queueDepth = msg.queueDepth ?? 0; bridgeDiagnostics.controllerActive = msg.controllerActive ?? false }
       if (msg.stage) { bridgeDiagnostics.research = msg.stage; bridgeDiagnostics.modelState = msg.stage === 'synthesizing' ? 'generating' : 'idle' }
       if (msg.responseLength !== undefined) bridgeDiagnostics.responseLength = msg.responseLength
@@ -409,6 +413,7 @@ export async function ask(
   activeAsk = id
   bridgeDiagnostics.request = id
   bridgeDiagnostics.frontend = 'executing'
+  bridgeDiagnostics.reportResearchId = '—'; bridgeDiagnostics.researchId = '—'; bridgeDiagnostics.actionRequestId = '—'; bridgeDiagnostics.artifactId = '—'; bridgeDiagnostics.reportState = 'idle'; bridgeDiagnostics.origin = '—'; bridgeDiagnostics.sourceCount = 0
   bridgeDiagnostics.research = 'idle'
   bridgeDiagnostics.completedAt = 0
   bridgeDiagnostics.state = 'connecting'

@@ -101,10 +101,11 @@ export function parseLocalCommand(text) {
     } catch { return { kind: 'invalid_url' } }
   }
   if (/^(?:gere|gerar|crie|criar|elabore|elaborar|faca) (?:um |o )?relatorio(?: em word)? (?:dessa|desta|da ultima) pesquisa$/.test(said)) return { kind: 'research', report: true, reuse: true }
-  const report = /^(?:gere|gerar|crie|criar|elabore|elaborar|faca) (?:um |o )?relatorio(?: em word)? (?:sobre|de) (.+)$/.exec(said)
+  const report = /^(?:gere|gerar|crie|criar|elabore|elaborar|faca) (?:um |o )?relatorio(?: em word)? (?:sobre|de|relacionado a|a respeito de) (.+)$/.exec(said)
   if (report) return { kind: 'research', report: true, query: report[1] }
   const researchReport = /^(?:pesquise|pesquisa|pesquisar|procure)(?: sobre| por)? (.+?) e (?:me )?(?:gere|crie|elabore|faca|entregue)(?: para mim)? (?:um |o )?relatorio(?: em word)?$/.exec(said)
   if (researchReport) return { kind: 'research', report: true, query: researchReport[1] }
+  if (/^(?:gere|gerar|crie|criar|elabore|elaborar|faca|quero|preciso)\b.*\brelatorio\b/.test(said)) return { kind: 'report_prompt' }
   const siteSearch = /(?:pesquise|pesquisa|pesquisar|procure|busque)\s+(?:no site|em)\s+((?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,})(?:\s+(?:por|sobre))?\s+(.+)/i.exec(text)
   if (siteSearch && /^(?:pesquise|pesquisa|pesquisar|procure|busque)\b/.test(said)) {
     try { return { kind: 'research', site: new URL(publicUrl(/^https?:/i.test(siteSearch[1]) ? siteSearch[1] : `https://${siteSearch[1]}`)).hostname, query: siteSearch[2] } }
@@ -228,6 +229,7 @@ export function createLocalCommands(onTimer, actions = {}) {
         pendingSearch = { engine: command.engine, expires: Date.now() + 60000 }
         return `O que você quer pesquisar no ${command.engine === 'youtube' ? 'YouTube' : 'Google'}?`
       }
+      if (command.kind === 'report_prompt') return 'Qual é o assunto do relatório? Para usar uma pesquisa existente, selecione o painel e use Gerar relatório Word.'
       if (command.kind === 'invalid_url') return 'Use o endereço público completo do site, começando com https://.'
       if (command.kind === 'research') {
         if (!actions.research) return 'A ferramenta de pesquisa não está disponível nesta conexão.'
@@ -277,7 +279,7 @@ export function createLocalCommands(onTimer, actions = {}) {
         }
         if (command.kind === 'search') {
           if (command.query.length > 200) return 'A pesquisa é longa demais. Resuma o que deseja procurar.'
-          if (actions.research && command.engine !== 'maps') return actions.research(command)
+          if (actions.research && command.engine !== 'maps') return actions.research(command, context)
           const base = command.engine === 'youtube' ? 'https://www.youtube.com/results?search_query='
             : command.engine === 'maps' ? 'https://www.google.com/maps/search/?api=1&query='
               : 'https://www.google.com/search?q='

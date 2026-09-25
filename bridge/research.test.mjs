@@ -57,13 +57,13 @@ test('sources remain data, results are escaped and reports reuse the current ses
       return '<script>alert(1)</script> Síntese [1]'
     }, saveReport: async (data) => { reports.push(data); return { name: 'relatorio-00000000-0000-0000-0000-000000000000.docx' } },
   })
-  assert.match(await research.run({ reuse: true, report: true }), /primeiro/)
+  assert.match(await research.run({ reuse: true, report: true }), /Selecione/)
   await research.run({ query: 'tema' })
   const panel = events.find((m) => m.type === 'blade').blade.html
   assert.ok(!panel.includes('<script>'))
   assert.match(panel, /https:\/\/example.com\/article/)
   assert.match(panel, /DuckDuckGo/)
-  assert.match(await research.run({ reuse: true, report: true }), /Word está pronto/)
+  assert.match(await research.run({ reuse: true, report: true, researchId: events.find(m => m.type === 'blade').blade.research.id }), /Word está pronto/)
   assert.equal(reports[0].query, 'tema')
   research.close()
   assert.equal(await research.run({ query: 'tema' }), 'A conexão foi encerrada.')
@@ -79,7 +79,7 @@ test('model failure yields labeled collected evidence and retrieval failure is n
 test('Word report has editable content, source links and an explicit review status', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'jarvis-report-test-'))
   try {
-    const report = await writeReport({ query: 'Energia solar', date: new Date().toISOString(), provider: 'Google', summary: 'Síntese baseada em evidências [1].', synthesis: true, sources: [{ title: 'Fonte', url: 'https://example.com', status: 'Página consultada' }] }, directory)
+    const report = await writeReport({ id: 'fixture-research', actionRequestId: 'fixture-operation', query: 'Energia solar', date: new Date().toISOString(), provider: 'Google', summary: 'Síntese baseada em evidências [1].', synthesis: true, sources: [{ title: 'Fonte', url: 'https://example.com', status: 'Página consultada' }] }, directory)
     const zip = await JSZip.loadAsync(await readFile(report.path))
     const xml = await zip.file('word/document.xml').async('string')
     assert.match(xml, /Matheus Ribeiro/)

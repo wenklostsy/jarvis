@@ -118,6 +118,10 @@ export function Diagnostics() {
       <Row k="instância" v={b.instance} />
       <Row k="iniciado em" v={b.startedAt} />
       <Row k="solicitação" v={b.request + ' · ' + b.state} />
+      <Row k="pesquisa ID" v={b.researchId} />
+      <Row k="pesquisa do Word" v={b.reportResearchId} />
+      <Row k="relatório operação" v={b.actionRequestId + " · " + b.origin + " · " + b.reportState} />
+      <Row k="artefato / fontes" v={b.artifactId + " / " + b.sourceCount} />
       <Row k="pesquisa / modelo" v={b.research + ' / ' + b.modelState} />
       <Row k="frontend / fila" v={b.frontend + ' / ' + b.queueDepth} />
       <Row k="controller execução" v={String(b.controllerActive)} />

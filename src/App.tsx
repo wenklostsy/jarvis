@@ -130,8 +130,9 @@ export default function App() {
     if (!action) {
       const operation = parseResultVoiceCommand(said)
       const state = store.getState()
-      const result = (state.blades.find((b) => b.id === state.focusedBlade && b.research) || [...state.blades].reverse().find((b) => b.research))?.research
-      if (operation && result) { await runResultAction({ operation, result }); return }
+      const result = state.blades.find(b => b.research?.id === state.activeResearchId)?.research
+      if (operation === 'report' && !result) action = { operation, researchId: '', origin: 'voice' }
+      if (operation && result) { await runResultAction({ operation, result, origin: 'voice' }); return }
     }
     silence('superseded')
     const mine = ++turn.current
@@ -178,7 +179,7 @@ export default function App() {
             // clear the readout while a slow tool was still running.
             store.getState().setActiveTool(null)
             music.working(false)
-            store.getState().pushTurn({ id: turnId, role: 'jarvis', text: '' })
+            store.getState().pushTurn({ id: turnId, role: 'jarvis', text: '', researchId: store.getState().interactionResearchId || undefined, presentation: store.getState().interactionResearchId || filled || /^(?:jarvis[, ]+)?(?:abra|abre|abrir|inicie|feche|pare|crie um lembrete)\b/i.test(said) ? 'notice' : 'conversation' })
           }
           store.getState().appendToLastTurn(delta)
           spk.push(delta)
@@ -205,6 +206,8 @@ export default function App() {
       }, action)
 
       if (stale()) return
+
+      store.getState().completeTurn(turnId)
 
       // The bridge keeps conversation state in its own session, so history is
       // only threaded through on the direct path.
@@ -242,8 +245,9 @@ export default function App() {
     }
   }
 
-  useEffect(() => watchResultActions(async ({ operation, result }) => {
+  useEffect(() => watchResultActions(async ({ operation, result, origin }) => {
     if (operation === 'stop') {
+      store.getState().pushTurn({ id: newId(), role: 'jarvis', text: 'Leitura interrompida.', presentation: 'notice' })
       const executing = bridgeDiagnostics.frontend === 'executing'
       silence('user-stop')
       if (!executing) { turn.current++; listen(FOLLOW_UP_MS) }
@@ -261,7 +265,7 @@ export default function App() {
       finally { if (mine === turn.current) { speaker.current = null; listen(FOLLOW_UP_MS) } }
       return
     }
-    await respond(operation === 'report' ? 'Gere um relatório dessa pesquisa.' : 'Pesquise novamente.', { operation, researchId: result.id })
+    await respond(operation === 'report' ? 'Gere um relatório dessa pesquisa.' : 'Pesquise novamente.', { operation, researchId: result.id, origin: origin || 'button' })
   }))
 
   // -- voice events ---------------------------------------------------------
@@ -509,7 +513,7 @@ export default function App() {
       }
     })
     watchTimer((message) => {
-      store.getState().pushTurn({ id: newId(), role: 'jarvis', text: message })
+      store.getState().pushTurn({ id: newId(), role: 'jarvis', text: message, presentation: 'notice' })
       const announcement = createSpeaker()
       announcement.say(message)
       void announcement.end()
@@ -631,7 +635,8 @@ export default function App() {
 
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
+      if ((e.code === 'Space' || e.key === 'Enter') && (e.target as HTMLElement)?.closest('button,a,summary')) return
 
       // V auditions the next British voice installed on this machine. Which
       // ones exist varies per Mac, so hearing them beats trusting a ranking.

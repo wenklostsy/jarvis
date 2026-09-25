@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JARVIS · inspeção HUD com fixtures</title></head><body><div id="root"></div>
+<script type="module">
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { Hud } from '/src/ui/Hud.tsx'
+import { Scene } from '/src/scene/Scene.tsx'
+import { useStore } from '/src/store.ts'
+import '/src/index.css'
+if (import.meta.env.DEV) {
+  const s = useStore.getState()
+  s.setPhase('dormant')
+  const result = (id, query) => ({ id, title: 'Pesquisa com fontes', kind: 'markup', size: 'wide', hold: 'sticky', research: { id, query, date: '2026-09-24', provider: 'Fixture local', content: ('Conteúdo fictício para inspeção visual do painel e de sua rolagem. [1]\n').repeat(12), spokenSummary: 'Resumo de teste.', sources: [{ title: 'Fonte fictícia', url: 'https://example.org', status: 'Fixture, sem consulta externa' }], artifacts: [], limitations: ['Dados fictícios; teste visual sem rede, modelo, voz ou microfone.'], actions: ['listen','stop','content','sources','retry','report'] } })
+  s.pushTurn({ id: 'u-a', role: 'user', text: 'Pesquise Rick e Renner' })
+  s.pushBlade(result('a', 'Rick e Renner'))
+  s.pushTurn({ id: 'r-a', role: 'jarvis', text: 'Pesquisa concluída.', presentation: 'notice', researchId: 'a' })
+  s.pushTurn({ id: 'u-b', role: 'user', text: 'Pesquise energia solar' })
+  s.pushBlade(result('b', 'Energia solar'))
+  s.pushTurn({ id: 'r-b', role: 'jarvis', text: 'Pesquisa concluída.', presentation: 'notice', researchId: 'b' })
+  s.pushTurn({ id: 'u-c', role: 'user', text: 'O que você consegue fazer?' })
+  s.pushTurn({ id: 'r-c', role: 'jarvis', text: 'Posso pesquisar fontes públicas e preparar relatórios para revisão. '.repeat(12) })
+  createRoot(document.getElementById('root')).render(React.createElement(React.Fragment, null, React.createElement(Scene), React.createElement(Hud)))
+}
+</script></body></html>

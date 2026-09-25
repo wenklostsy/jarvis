@@ -96,21 +96,31 @@ export async function readSource(source, request = fetchText, signal, engine) {
 }
 
 export function createResearch({ generate, send = () => {}, request = fetchText, saveReport = writeReport } = {}) {
-  let latest = null
+  const operations = new Map()
   const results = new Map()
   let closed = false
   let controller = null
   return {
     cancel() { controller?.abort() },
-    close() { closed = true; controller?.abort(); latest = null; results.clear() },
+    close() { closed = true; controller?.abort(); results.clear(); operations.clear() },
     async action(action, context = {}) {
       if (!action || !['report', 'retry'].includes(action.operation) || typeof action.researchId !== 'string') throw new Error('Ação de pesquisa inválida.')
+      context.action = action
       const original = results.get(action.researchId)
       if (!original) return 'Esta pesquisa não está mais disponível nesta conexão. Pesquise novamente por voz.'
       return this.run(action.operation === 'report' ? { reuse: true, report: true, researchId: original.id } : original.command, context)
     },
-    async run(command, context = {}) {
+    run(command, context = {}) {
+      const id = context.id || randomUUID()
+      if (operations.has(id)) return operations.get(id)
+      context.id = id
+      const task = this.execute(command, context)
+      operations.set(id, task)
+      return task
+    },
+    async execute(command, context = {}) {
       if (closed) return 'A conexão foi encerrada.'
+      if (command.report) send({ type: 'progress', stage: 'reporting', reportState: 'requested', actionRequestId: context.id, researchId: command.researchId, reportResearchId: command.researchId, origin: context.action?.origin || 'voice' })
       controller?.abort()
       const current = new AbortController()
       controller = current
@@ -120,8 +130,8 @@ export function createResearch({ generate, send = () => {}, request = fetchText,
         signal.throwIfAborted()
         let data
         if (command.reuse) {
-          const previous = command.researchId ? results.get(command.researchId) : latest
-          if (!previous) return 'Faça uma pesquisa primeiro ou diga o assunto do relatório.'
+          const previous = results.get(command.researchId)
+          if (!previous) return 'Selecione uma pesquisa no painel ou diga o assunto do relatório.'
           data = { ...previous, limitations: [...previous.limitations] }
         } else {
           const query = clean(command.query || command.url)
@@ -145,7 +155,7 @@ export function createResearch({ generate, send = () => {}, request = fetchText,
           }))
           signal.throwIfAborted()
           if (!sources.some((s) => s.text || s.snippet)) throw new Error('Não consegui ler o conteúdo dessa página. Ela pode exigir login ou bloquear acesso automático.')
-          data = { id: randomUUID(), query, command: { ...command, report: false }, provider: found.provider, sources, date: new Date().toISOString(), limitations: ['Relevância estimada por termos; confira o conteúdo e a autoria nas fontes.', 'Índices de citações são verificados, mas a correspondência factual de cada afirmação exige revisão.', 'Datas de publicação podem não estar disponíveis; data de consulta não significa atualidade.'], artifacts: [] }
+          data = { id: randomUUID(), requestId: context.id, query, command: { ...command, report: false }, provider: found.provider, sources, date: new Date().toISOString(), limitations: ['Relevância estimada por termos; confira o conteúdo e a autoria nas fontes.', 'Índices de citações são verificados, mas a correspondência factual de cada afirmação exige revisão.', 'Datas de publicação podem não estar disponíveis; data de consulta não significa atualidade.'], artifacts: [] }
           if (sources.some((s) => !s.text)) data.limitations.push('Parte das fontes não pôde ser lida; seus trechos são apenas resultados do buscador.')
           if (command.engine === 'youtube') data.limitations.push('Somente títulos, descrições ou metadados públicos; sem transcrição e sem análise do vídeo.')
         }
@@ -173,23 +183,29 @@ export function createResearch({ generate, send = () => {}, request = fetchText,
         summary = summary.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/^#{1,6}\s+/gm, '')
         data = { ...data, summary, synthesis }
         let report = null
-        if (command.report) { progress('reporting'); report = await saveReport(data) }
+        if (command.report) {
+          progress('reporting', { reportState: 'generating', researchId: data.id, reportResearchId: data.id, actionRequestId: context.id, origin: context.action?.origin || 'voice', sourceCount: data.sources.length })
+          report = await saveReport({ ...data, actionRequestId: context.id })
+          if (!report || !/^relatorio-[a-f0-9-]+\.docx$/.test(report.name)) throw new Error('O gerador não confirmou um arquivo válido.')
+          progress('reporting', { reportState: 'created', researchId: data.id, reportResearchId: data.id, actionRequestId: context.id })
+          report = { ...report, artifactId: report.artifactId || report.name, researchId: data.id, actionRequestId: context.id, createdAt: report.createdAt || new Date().toISOString() }
+        }
         signal.throwIfAborted()
         data.spokenSummary = spokenSummary(data)
-        if (report) data.artifacts = [...data.artifacts, { kind: 'docx', name: report.name }]
-        latest = data
+        if (report) data.artifacts = [...data.artifacts.filter(a => a.artifactId !== report.artifactId), { kind: 'docx', name: report.name, artifactId: report.artifactId, researchId: data.id, actionRequestId: context.id, createdAt: report.createdAt }]
+        context.researchResult = data
         results.set(data.id, data)
         if (results.size > 10) results.delete(results.keys().next().value)
         const port = Number(process.env.JARVIS_BRIDGE_PORT || 8787)
         const reportLink = report ? `<p><a href="http://localhost:${port}/reports/${report.name}">Baixar relatório em Word</a></p>` : ''
         const html = `<p><strong>${esc(data.query)}</strong></p><p>Consulta em ${esc(new Date(data.date).toLocaleString('pt-BR'))}. Busca: ${esc(data.provider)}.</p>${reportLink}${data.summary.split(/\n+/).map((p) => `<p>${esc(p)}</p>`).join('')}<p><strong>Fontes para validação</strong></p><ol>${data.sources.map((s) => `<li><a href="${esc(s.url)}">${esc(s.title || s.url)}</a><br><small>${esc(s.status)}</small></li>`).join('')}</ol><p>Conteúdo gerado para revisão de Matheus Ribeiro. Confirme as informações nas fontes.</p>`
-        send({ type: 'blade', blade: { id: `research-${data.id}`, title: command.report ? 'Relatório para validação' : 'Pesquisa com fontes', kind: 'markup', html, research: { id: data.id, query: data.query, content: data.summary, spokenSummary: data.spokenSummary, sources: data.sources.map((source) => ({ title: source.title, url: source.url, snippet: source.snippet, status: source.status, publishedAt: source.publishedAt, media: source.media, transcriptAvailable: false, videoAnalyzed: false })), artifacts: data.artifacts, limitations: data.limitations, date: data.date, provider: data.provider, actions: ['listen', 'stop', 'content', 'sources', 'retry', 'report'] }, size: 'wide', hold: 'sticky' } })
-        progress('completed', { responseLength: data.summary.length, controllerActive: false })
+        send({ type: 'blade', blade: { id: `research-${data.id}`, title: command.report ? 'Relatório para validação' : 'Pesquisa com fontes', kind: 'markup', html, research: { id: data.id, requestId: data.requestId, query: data.query, content: data.summary, spokenSummary: data.spokenSummary, sources: data.sources.map((source) => ({ title: source.title, url: source.url, snippet: source.snippet, status: source.status, publishedAt: source.publishedAt, media: source.media, transcriptAvailable: false, videoAnalyzed: false })), artifacts: data.artifacts, limitations: data.limitations, date: data.date, provider: data.provider, actions: ['listen', 'stop', 'content', 'sources', 'retry', 'report'] }, size: 'wide', hold: 'sticky' } })
+        progress('completed', { researchId: data.id, reportResearchId: command.report ? data.id : undefined, actionRequestId: context.id, artifactId: report?.artifactId, reportState: report ? 'available' : undefined, sourceCount: data.sources.length, responseLength: data.summary.length, controllerActive: false })
         if (report) return `Matheus, o relatório em Word está pronto para sua revisão. O botão para baixar e as fontes estão no painel.${synthesis ? '' : ' A síntese não ficou disponível; o documento contém os resultados coletados e essa limitação.'}`
         return data.spokenSummary
       } catch (error) {
         if (signal.aborted) return 'Pesquisa interrompida.'
-        progress('failed', { state: 'failed', controllerActive: false })
+        progress('failed', { reportState: command.report ? 'failed' : undefined, actionRequestId: context.id, state: 'failed', controllerActive: false })
         return `Não consegui concluir a pesquisa: ${error.message}`
       } finally { if (controller === current) controller = null }
     },

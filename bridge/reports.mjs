@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 export const REPORT_DIR = fileURLToPath(new URL('../reports/', import.meta.url))
 
 export async function writeReport(data, directory = REPORT_DIR) {
+  if (!data || typeof data.id !== 'string' || !data.id || typeof data.actionRequestId !== 'string' || !data.actionRequestId || typeof data.query !== 'string' || !data.query.trim() || typeof data.summary !== 'string' || !data.summary.trim() || !Array.isArray(data.sources) || !data.sources.length) throw new Error('Relatório exige uma pesquisa estruturada e uma operação identificada.')
   const paragraph = (text, options = {}) => new Paragraph({ text, spacing: { after: 160 }, ...options })
   const title = data.query.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
   const children = [
@@ -34,8 +35,9 @@ export async function writeReport(data, directory = REPORT_DIR) {
       footers: { default: new Footer({ children: [new Paragraph({ children: [new TextRun('JARVIS | Matheus Ribeiro | '), new TextRun({ children: [PageNumber.CURRENT] })] })] }) }, children }],
   })
   await mkdir(directory, { recursive: true })
-  const name = `relatorio-${randomUUID()}.docx`
+  const artifactId = randomUUID()
+  const name = `relatorio-${artifactId}.docx`
   const path = join(directory, name)
   await writeFile(path, await Packer.toBuffer(doc), { flag: 'wx' })
-  return { name, path }
+  return { name, path, artifactId, researchId: data.id, actionRequestId: data.actionRequestId, createdAt: new Date().toISOString() }
 }

@@ -70,7 +70,7 @@ test('irrelevant results never invoke model; inaccessible evidence and invalid c
   assert.match(frames.filter((m) => m.type === 'blade').at(-1).blade.research.content, /não uma conclusão verificada/)
 })
 
-test('Word button targets selected research; voice uses latest; export neither searches nor synthesizes again', async () => {
+test('Word button targets selected research; voice uses explicit selection; export neither searches nor synthesizes again', async () => {
   const frames = [], saved = []; let fetches = 0, generations = 0
   const research = createResearch({ request: async (url) => { fetches++; return url.includes('/search?') ? results('Energia solar e energia eólica') : page('Energia solar e energia eólica. ') },
     generate: async () => { generations++; return `Síntese ${generations} [1].` }, send: (m) => frames.push(m), saveReport: async (data) => { saved.push(data); return { name: 'relatorio-00000000-0000-0000-0000-000000000000.docx' } },
@@ -79,7 +79,7 @@ test('Word button targets selected research; voice uses latest; export neither s
   const first = frames.find((m) => m.type === 'blade').blade.research
   await research.run({ query: 'energia eólica' })
   const before = fetches
-  await research.run({ reuse: true, report: true })
+  await research.run({ reuse: true, report: true, researchId: frames.filter(m => m.type === 'blade').at(-1).blade.research.id })
   assert.equal(saved[0].query, 'energia eólica')
   await research.action({ operation: 'report', researchId: first.id })
   assert.equal(saved[1].query, 'energia solar')

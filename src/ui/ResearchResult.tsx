@@ -9,7 +9,7 @@ export function ResearchResult({ result }: { result: Result }) {
   const perform = async (operation: ResultAction['operation']) => {
     setError('')
     if (operation !== 'stop') setBusy(true)
-    try { await runResultAction({ operation, result }) }
+    try { await runResultAction({ operation, result, origin: 'button' }) }
     catch { setError('Não foi possível executar a ação. Ative o JARVIS e tente novamente.') }
     finally { setBusy(false) }
   }
@@ -34,8 +34,8 @@ export function ResearchResult({ result }: { result: Result }) {
           {source.media === 'video-metadata' && <p>Metadados de vídeo; sem transcrição ou análise audiovisual.</p>}
         </li>
       })}</ol>}
-    {result.artifacts.filter((a) => /^relatorio-[a-f0-9-]+\.docx$/.test(a.name)).map((artifact) =>
-      <p key={artifact.name}><a href={`${BRIDGE_HTTP_URL}/reports/${artifact.name}`} download>Baixar relatório Word</a></p>)}
+    {result.artifacts.filter((a, i, all) => all.findIndex(b => (b.artifactId || b.name) === (a.artifactId || a.name)) === i).filter((a) => /^relatorio-[a-f0-9-]+\.docx$/.test(a.name)).map((artifact) =>
+      <p key={artifact.name}><a href={`${BRIDGE_HTTP_URL}/reports/${artifact.name}`} download>Baixar relatório Word{artifact.createdAt ? ` · ${new Date(artifact.createdAt).toLocaleString('pt-BR')} · ${(artifact.artifactId || artifact.name).slice(0, 8)}` : ''}</a></p>)}
     <details><summary>Método e limitações</summary>{result.limitations.map((text, i) => <p key={i}>{text}</p>)}</details>
   </div>
 }

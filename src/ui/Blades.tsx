@@ -247,6 +247,7 @@ function Card({
   onFocus,
   onExpand,
   onClose,
+  onMinimize,
 }: {
   blade: Blade
   /** 0 is front-most. Drives the offset and the dimming behind it. */
@@ -256,6 +257,7 @@ function Card({
   onFocus: () => void
   onExpand: () => void
   onClose: () => void
+  onMinimize: () => void
 }) {
   /** Size the user has dragged this blade to, overriding the class preset. */
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
@@ -352,7 +354,11 @@ function Card({
     if (!focused) onFocus()
     if (expanded) return
     const from = { ...pos }
-    grab(e, (dx, dy) => setPos({ x: from.x + dx, y: from.y + dy }))
+    const bounds = shell.current?.getBoundingClientRect()
+    grab(e, (dx, dy) => setPos({
+      x: from.x + (bounds ? Math.max(20 - bounds.left, Math.min(dx, window.innerWidth - 20 - bounds.right)) : dx),
+      y: from.y + (bounds ? Math.max(20 - bounds.top, Math.min(dy, window.innerHeight - 60 - bounds.bottom)) : dy),
+    }))
   }
 
   /**
@@ -375,7 +381,11 @@ function Card({
     if (!focused) onFocus()
     if (expanded) return
     const from = { ...pos }
-    grab(e, (dx, dy) => setPos({ x: from.x + dx, y: from.y + dy }))
+    const bounds = shell.current?.getBoundingClientRect()
+    grab(e, (dx, dy) => setPos({
+      x: from.x + (bounds ? Math.max(20 - bounds.left, Math.min(dx, window.innerWidth - 20 - bounds.right)) : dx),
+      y: from.y + (bounds ? Math.max(20 - bounds.top, Math.min(dy, window.innerHeight - 60 - bounds.bottom)) : dy),
+    }))
   }
 
   /**
@@ -519,7 +529,10 @@ function Card({
         // mousedown handler simply never hears them. Focusing a blade by pinch
         // was silently impossible until this changed.
         onPointerDown={() => {
-          if (!focused) onFocus()
+          if (!focused || (blade.research && useStore.getState().activeResearchId !== blade.research.id)) onFocus()
+        }}
+        onFocusCapture={() => {
+          if (!focused || (blade.research && useStore.getState().activeResearchId !== blade.research.id)) onFocus()
         }}
       >
         <span className="pk pk-tl" />
@@ -529,9 +542,10 @@ function Card({
 
         <header className="bl-head" onPointerDown={onHeadDown}>
           <span className="bl-title">{blade.title}</span>
-          <span className="bl-kind">{blade.kind}</span>
+          <span className="bl-kind">{blade.research ? "PESQUISA" : blade.kind}</span>
           <span className="bl-acts">
-            {(size || pos.x || pos.y) && !expanded && (
+            <button className="bl-btn" aria-label="Minimizar painel" title="Minimizar painel" onClick={e => { e.stopPropagation(); onMinimize() }}>−</button>
+            {Boolean(size || pos.x || pos.y) && !expanded && (
               <button
                 className="bl-btn"
                 onClick={(e) => {
@@ -560,7 +574,7 @@ function Card({
                 e.stopPropagation()
                 onClose()
               }}
-              title="Close (X)"
+              title="Fechar painel (X)" aria-label="Fechar painel"
             >
               ✕
             </button>
@@ -596,7 +610,7 @@ export function Blades() {
    * that" a meaningful thing to ask for.
    */
   const ordered = useMemo(() => {
-    const newestFirst = [...blades].reverse()
+    const newestFirst = blades.filter(b => !b.visibility || b.visibility === 'open').reverse()
     if (!focusedBlade) return newestFirst
     const hit = newestFirst.findIndex((b) => b.id === focusedBlade)
     if (hit <= 0) return newestFirst
@@ -620,7 +634,7 @@ export function Blades() {
   // Bound here rather than in App, and only while something is open, so E and X
   // are free for anything else the moment the last blade closes.
   const live = useRef(false)
-  live.current = blades.length > 0
+  live.current = ordered.length > 0
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -647,16 +661,16 @@ export function Blades() {
     return () => window.removeEventListener('keydown', onKey)
   }, [front, expandedBlade, expandBlade, closeBlade, cycle])
 
-  if (!blades.length) return null
+  if (!ordered.length) return null
 
   return (
-    <div className={`blades-stack${expandedBlade ? ' blades-stack-full' : ''}`}>
+    <div className={`blades-stack hud-result-stack${expandedBlade ? ' blades-stack-full' : ''}`}>
       <AnimatePresence>
         {ordered.map((blade, i) => {
           const expanded = expandedBlade === blade.id
           // While one is expanded it is the only thing on screen; the rest are
           // unmounted rather than hidden so their iframes stop loading.
-          if (expandedBlade && !expanded) return null
+          if ((expandedBlade && !expanded) || (!expandedBlade && i > 0)) return null
           return (
             <Card
               key={blade.id}
@@ -667,6 +681,7 @@ export function Blades() {
               onFocus={() => focusBlade(blade.id)}
               onExpand={() => expandBlade(expanded ? null : blade.id)}
               onClose={() => closeBlade(blade.id)}
+              onMinimize={() => useStore.getState().minimizeBlade(blade.id)}
             />
           )
         })}
