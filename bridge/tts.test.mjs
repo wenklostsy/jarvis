@@ -30,6 +30,7 @@ async function setup(t, mode = 'normal') {
   }
   t.after(() => { for (const key of ['window', 'localStorage', 'requestAnimationFrame', 'cancelAnimationFrame', 'SpeechSynthesisUtterance', 'speechSynthesis', 'Audio']) delete globalThis[key] })
   let source = readFileSync(new URL('../src/lib/tts.ts', import.meta.url), 'utf8')
+  source = source.replace("import { bridgeFetch } from './bridge-session'", 'const bridgeFetch = (...args) => fetch(...args)')
   source = source.replace(/import \{[\s\S]*?\} from '..\/config'/, "const env = {}; const USE_ELEVENLABS = false, BACKEND = 'bridge', TTS_ENGINE = 'system', KOKORO_VOICE = '', BRIDGE_HTTP_URL = ''; ")
     .replace("import * as kokoro from './kokoro'", 'const kokoro = { isUnavailable: () => true };')
     .replace("import { caps } from './capabilities'", `const caps = () => ({ tts: ${mode.includes('stalled') && mode !== 'stalled'} });`)
@@ -77,7 +78,7 @@ for (const mode of ['normal', 'error', 'stalled']) {
     const state = new Proxy({ phase, blades: [], setPhase(value) { phase = value; this.phase = value } }, { get: (obj, key) => obj[key] ?? (() => {}) })
     const useStore = (select) => select(state); useStore.getState = () => state
     const noop = new Proxy({}, { get: () => () => {} })
-    globalThis.__appTest = { useRef: (value) => ({ current: value }), useStore,
+    globalThis.__appTest = { confirmVoice: () => false, useRef: (value) => ({ current: value }), useStore,
       parseResultVoiceCommand: () => null, runResultAction: async () => {}, createSpeaker: tts.createSpeaker, ttsDiag: tts.diag, sfx: noop, music: noop,
       usingBridge: true, forTool: () => '', bridgeDiagnostics: { request: 'r1' },
       ask: async (_said, _history, handlers) => { calls++; handlers.onText('Síntese da pesquisa. '); return { text: 'Síntese da pesquisa.' } },

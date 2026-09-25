@@ -96,9 +96,9 @@ export async function load(): Promise<Kokoro | null> {
       progress = 1
       model = tts as unknown as Kokoro
       return model
-    } catch (err) {
-      console.warn('[jarvis] kokoro unavailable, using the system voice:', err)
-      lastError = String((err as Error)?.message ?? err)
+    } catch {
+      console.warn('[jarvis] kokoro unavailable, using the system voice')
+      lastError = 'kokoro-unavailable'
       failed = true
       return null
     } finally {
@@ -122,11 +122,11 @@ export async function speak(text: string): Promise<string | null> {
     })
     failures = 0
     return URL.createObjectURL(audio.toBlob())
-  } catch (err) {
+  } catch {
     // Surfaced rather than swallowed: a silent null here just looks like the
     // voice quietly reverting to the system one with no explanation.
-    console.error('[jarvis] kokoro generation failed:', err)
-    lastError = String((err as Error)?.message ?? err)
+    console.error('[jarvis] kokoro generation failed')
+    lastError = 'kokoro-unavailable'
     failures++
     if (failures >= MAX_FAILURES) {
       // Nothing else sets this on the generation path, so without it tts.ts

@@ -1,3 +1,4 @@
+import { publicError } from './safe-log.mjs'
 import { createRequests, bindRequests } from './requests.mjs'
 // OpenAI Responses API backend for the existing JARVIS WebSocket protocol.
 import { createLocalCommands } from './local-commands.mjs'
@@ -56,8 +57,8 @@ export function openaiConnection(socket, systemPrompt) {
       if (history.length > 20) history.splice(0, history.length - 20)
       send({ type: 'text', ask: id, delta: output })
       send({ type: 'done', ask: id, text: output, costUsd: null })
-    } catch (error) {
-      if (!controller.signal.aborted) send({ type: 'error', ask: id, message: String(error.message || error) })
+    } catch {
+      if (!controller.signal.aborted) send({ type: 'error', ask: id, message: publicError() })
     }
   }
 

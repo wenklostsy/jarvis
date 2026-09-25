@@ -1,3 +1,5 @@
+import { Confirmation } from './ui/Confirmation'
+import { confirmVoice } from './lib/bridge'
 import { watchResultActions, runResultAction, parseResultVoiceCommand, type ResearchAction } from './lib/research-actions'
 import { bridgeDiagnostics } from './lib/bridge'
 import { useEffect, useRef } from 'react'
@@ -127,6 +129,7 @@ export default function App() {
   // -- one turn -------------------------------------------------------------
 
   const respond = async (said: string, action?: ResearchAction): Promise<void> => {
+    if (!action && confirmVoice(said)) return
     if (!action) {
       const operation = parseResultVoiceCommand(said)
       const state = store.getState()
@@ -225,11 +228,11 @@ export default function App() {
       void spk.end().then(() => { if (!stale()) sfx.play('done') }, () => spk.cancel('engine-error')).finally(releasePresentation)
     } catch (err) {
       if (stale()) return
-      console.error(err)
+      console.error('[jarvis] request failed')
       sfx.play('error')
       store
         .getState()
-        .setError(err instanceof Error ? err.message : 'Something went wrong.')
+        .setError(err instanceof Error && err.name === 'NotAllowedError' ? 'Permissão do navegador necessária. Verifique o microfone.' : 'Não consegui concluir a operação. Consulte o diagnóstico do JARVIS.')
     } finally {
       if (!presentationOwnsCleanup && !stale()) {
         spk.cancel('execution-error')
@@ -385,13 +388,13 @@ export default function App() {
       // for the rest of the page, recoverable only by reloading. Reset it and
       // put the button back so the user can simply press it again.
       booting.current = false
-      console.error('[jarvis] power-up failed:', err)
+      console.error('[jarvis] power-up failed')
       store.getState().setPhase('offline')
       store
         .getState()
         .setError(
           err instanceof Error
-            ? `Power-up failed: ${err.message}`
+            ? 'Falha ao iniciar. Verifique o bridge e a permissão de áudio.'
             : 'Power-up failed. Click to try again.',
         )
     }
@@ -497,7 +500,7 @@ export default function App() {
           s.clearScreen(a.what ?? 'all')
           break
         default:
-          console.warn('[jarvis] unknown ui op:', op, args)
+          console.warn('[jarvis] unknown ui operation')
       }
     })
     // In bridge mode the conversation lives in the agent session, which is tied
@@ -699,7 +702,7 @@ export default function App() {
         t.say('Teste de áudio. Se você consegue ouvir isto, a voz está funcionando.')
         void t.end().then(() => {
           const d = (window as unknown as Record<string, Record<string, unknown>>).__tts
-          console.info('[jarvis] audio test →', d)
+          console.info('[jarvis] audio test', { engine: d?.engine, started: d?.started, rescued: d?.rescued })
           if (d && d.started === 0 && d.rescued === 0) {
             store.getState().setError(
               `No sound produced. engine=${d.engine} voice=${d.voice} error=${d.lastError || 'none'}`,
@@ -758,6 +761,7 @@ export default function App() {
       <Scene />
       <Hud />
       <Boot />
+      <Confirmation />
       <Diagnostics />
       <Ignition onStart={() => void powerOn()} />
     </>

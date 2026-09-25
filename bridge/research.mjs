@@ -1,3 +1,4 @@
+import { publicError } from './safe-log.mjs'
 import { randomUUID } from 'node:crypto'
 import { relevantSources, validateSynthesis, spokenSummary } from './research-quality.mjs'
 import { parseHTML, DOMParser } from 'linkedom'
@@ -203,10 +204,10 @@ export function createResearch({ generate, send = () => {}, request = fetchText,
         progress('completed', { researchId: data.id, reportResearchId: command.report ? data.id : undefined, actionRequestId: context.id, artifactId: report?.artifactId, reportState: report ? 'available' : undefined, sourceCount: data.sources.length, responseLength: data.summary.length, controllerActive: false })
         if (report) return `Matheus, o relatório em Word está pronto para sua revisão. O botão para baixar e as fontes estão no painel.${synthesis ? '' : ' A síntese não ficou disponível; o documento contém os resultados coletados e essa limitação.'}`
         return data.spokenSummary
-      } catch (error) {
+      } catch {
         if (signal.aborted) return 'Pesquisa interrompida.'
         progress('failed', { reportState: command.report ? 'failed' : undefined, actionRequestId: context.id, state: 'failed', controllerActive: false })
-        return `Não consegui concluir a pesquisa: ${error.message}`
+        return publicError()
       } finally { if (controller === current) controller = null }
     },
   }

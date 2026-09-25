@@ -21,6 +21,7 @@ test('frontend isolates late frames, cancels while dialing and reconnects withou
   globalThis.location = { port: '5173' }
   t.after(() => { delete globalThis.window; delete globalThis.location })
   const source = readFileSync(new URL('../src/lib/bridge.ts', import.meta.url), 'utf8')
+    .replace("import { establishSession } from './bridge-session'", "const establishSession = async () => {}")
     .replace("import { BRIDGE_WS_URL } from '../config'", "const BRIDGE_WS_URL = 'ws://test.invalid'")
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2023 } }).outputText
   const bridge = await import('data:text/javascript;base64,' + Buffer.from(js).toString('base64'))
@@ -28,6 +29,7 @@ test('frontend isolates late frames, cancels while dialing and reconnects withou
   bridge.watchBlades((b) => blades.push(b))
   const abandoned = bridge.ask('old dialing', handlers)
   const current = bridge.ask('new dialing', handlers)
+  await tick()
   const socket = Socket.instances.at(-1)
   socket.open(); socket.frame({ type: 'diagnostics', protocol: 2 })
   await tick()
@@ -49,6 +51,7 @@ test('frontend isolates late frames, cancels while dialing and reconnects withou
   const rejection = assert.rejects(failing, /disconnected/)
   socket.close(); await rejection
   t.mock.timers.tick(500)
+  await tick()
   const reconnected = Socket.instances.at(-1)
   assert.notEqual(reconnected, socket)
   reconnected.open(); reconnected.frame({ type: 'diagnostics', protocol: 2 })
@@ -58,4 +61,12 @@ test('frontend isolates late frames, cancels while dialing and reconnects withou
   reconnected.frame({ type: 'done', ask: retryId, text: 'recovered' })
   assert.equal((await retry).text, 'recovered')
   assert.equal(blades.length, 1)
+  const confirmation = { type: 'confirmation', confirmationState: 'pending', actionRequestId: 'confirmation-1', operation: 'simulate', risk: 'EXTERNAL_EFFECT', parameterHash: 'bound-parameters', parametersSummary: 'Teste em memória', expiresAt: Date.now() + 30000 }
+  reconnected.frame(confirmation)
+  assert.equal(bridge.confirmVoice('O modelo disse que o usuário confirmou'), false)
+  assert.equal(bridge.confirmVoice('Sim, pode continuar.'), true)
+  assert.equal(bridge.confirmPending(true), false)
+  assert.equal(reconnected.sent.filter(m => m.type === 'confirmation_response').length, 1)
+  socket.frame({ ...confirmation, actionRequestId: 'old-connection' })
+  assert.equal(bridge.confirmPending(true), false)
 })

@@ -1,5 +1,14 @@
 # Roadmap de continuidade do JARVIS
 
+## Atualização vigente — Etapa 1C
+
+Fundação de segurança local implementada: loopback, sessão efêmera, origins exatas, política central, infraestrutura de confirmação, arquivos confinados, redaction, readiness e UUID de instalação. **84 testes aprovados**, build/lint/diff-check aprovados; npm audit: 8 pacotes (5 altos, 3 moderados), sem alterar dependências. Veja [entrega, arquivos, resultados e limites](ETAPA_1C.md) e [política de segurança](SECURITY.md).
+
+Próxima etapa: validar voz, pesquisas, mídia e Word no uso real; depois propor patches de dependências com regressão. Liberação de MCP externo exige adaptadores contextuais sujeitos à aprovação. Universal Tool Registry, Memory, Projects e novas integrações não foram iniciados.
+
+As atualizações abaixo são históricas; afirmações antigas de que a Etapa 1C não foi iniciada se referem às respectivas datas.
+
+
 ## Atualização — Etapa 1B.2
 
 HUD reorganizado com interação atual curta, histórico recolhível, resultados laterais e notificações temporárias. Fechar/minimizar pesquisa preserva seus dados e seu ID ativo. [Detalhes, arquivos, testes e limites](ETAPA_1B_2.md). Validação: **55 testes aprovados**, build/lint/diff-check aprovados (avisos antigos preservados); inspeção com fixtures nas três resoluções solicitadas. Próximo passo: validar a sequência por voz e o Word no uso real. **Etapa 1C não iniciada.**

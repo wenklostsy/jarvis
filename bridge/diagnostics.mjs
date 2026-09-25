@@ -1,3 +1,4 @@
+import { redact } from './safe-log.mjs'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync, readdirSync } from 'node:fs'
 
@@ -15,7 +16,7 @@ export function attachDiagnostics(socket, { request = fetch } = {}) {
   const backend = ['ollama', 'gemini', 'openai'].includes(process.env.JARVIS_BRAIN) ? process.env.JARVIS_BRAIN : 'claude'
   const configured = backend === 'ollama' ? process.env.JARVIS_LOCAL_MODEL || 'qwen3.5:4b'
     : process.env.JARVIS_MODEL || ({ gemini: 'gemini-3.5-flash', openai: 'gpt-5.1', claude: 'claude-opus-5' })[backend]
-  const model = /^[a-zA-Z0-9_.:/[\]-]{1,100}$/.test(configured) ? configured : 'configurado (nome omitido)'
+  const model = /^[a-zA-Z0-9_.:/[\]-]{1,100}$/.test(configured) ? redact(configured) : 'configurado (nome omitido)'
   let checking = false
   let lastCheck = 0
   let ollama = 'não verificado'

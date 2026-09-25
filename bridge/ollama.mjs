@@ -1,3 +1,4 @@
+import { publicError } from './safe-log.mjs'
 import { createRequests, bindRequests } from './requests.mjs'
 import { createLocalCommands } from './local-commands.mjs'
 import { createResearch } from './research.mjs'
@@ -55,7 +56,7 @@ export function ollamaConnection(socket) {
           type: 'error', ask: id,
           message: offline
             ? 'O Ollama local não está aberto. Inicie o Ollama e tente novamente.'
-            : String(error.message || error),
+            : publicError(),
         })
       }
     }

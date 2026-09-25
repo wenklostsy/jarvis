@@ -1,3 +1,6 @@
+import { publicError } from './safe-log.mjs'
+import { safeUrl } from './security.mjs'
+import { assertCapability } from './permissions.mjs'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -184,11 +187,13 @@ function run(file, args = []) {
 }
 
 async function openUrl(url) {
+  if (![...SETTINGS.values()].includes(url)) url = safeUrl(url)
   if (process.platform !== 'win32') throw new Error('A abertura de sites está configurada para Windows.')
   await run('rundll32.exe', ['url.dll,FileProtocolHandler', url])
 }
 
 async function openApp(target) {
+  if (!['vscode','calc','notepad','explorer','paint','taskmgr'].includes(target)) throw new Error('Aplicativo desconhecido.')
   if (process.platform !== 'win32') throw new Error('A abertura de aplicativos está configurada para Windows.')
   if (target === 'vscode') {
     const paths = [
@@ -225,6 +230,7 @@ export function createLocalCommands(onTimer, actions = {}) {
         if (query) command = { kind: 'search', engine: pending.engine, query }
       }
       if (!command) return null
+      assertCapability(command.kind)
       if (command.kind === 'search_prompt') {
         pendingSearch = { engine: command.engine, expires: Date.now() + 60000 }
         return `O que você quer pesquisar no ${command.engine === 'youtube' ? 'YouTube' : 'Google'}?`
@@ -296,7 +302,7 @@ export function createLocalCommands(onTimer, actions = {}) {
       } catch (error) {
         context.signal?.throwIfAborted()
         progress('failed')
-        return String(error.message || error)
+        return error.message === 'Aplicativo indisponível.' ? error.message : publicError()
       }
       return null
     },

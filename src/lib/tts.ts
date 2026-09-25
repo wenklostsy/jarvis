@@ -1,3 +1,4 @@
+import { bridgeFetch } from './bridge-session'
 import {
   env,
   USE_ELEVENLABS,
@@ -781,7 +782,7 @@ export function createSpeaker(request = ''): Speaker {
 async function fetchCloudAudio(text: string, signal?: AbortSignal): Promise<string | null> {
   if (BACKEND === 'bridge') {
     try {
-      const res = await fetch(`${BRIDGE_HTTP_URL}/tts`, {
+      const res = await bridgeFetch(`${BRIDGE_HTTP_URL}/tts`, {
         signal,
         method: 'POST',
         headers: { 'content-type': 'application/json' },

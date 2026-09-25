@@ -1,3 +1,4 @@
+import { bridgeFetch } from './bridge-session'
 import { BACKEND, BRIDGE_HTTP_URL, env } from '../config'
 
 /**
@@ -52,7 +53,7 @@ export async function probeCapabilities(): Promise<Capabilities> {
     return current
   }
   try {
-    const res = await fetch(`${BRIDGE_HTTP_URL}/health`, {
+    const res = await bridgeFetch(`${BRIDGE_HTTP_URL}/health`, {
       signal: AbortSignal.timeout(3000),
     })
     if (res.ok) {

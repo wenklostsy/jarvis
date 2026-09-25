@@ -98,6 +98,8 @@ export function blockedAddress(ip) {
     }
     return true
   }
+  // Only global unicast IPv6; refuse translation/tunneling paths into IPv4 LANs.
+  if (isIP(addr) !== 6 || !/^[23][0-9a-f]{0,3}:/.test(addr) || /^2002:|^2001:0:/.test(addr)) return true
   if (/^f[cd]/.test(addr)) return true // fc00::/7 unique local
   if (/^fe[89ab]/.test(addr)) return true // fe80::/10 link-local
   if (/^ff/.test(addr)) return true // multicast
@@ -157,6 +159,7 @@ export function vetTarget(raw) {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw proxyError(400, 'absolute http(s) url required')
   }
+  if (url.username || url.password) throw proxyError(400, 'credentials in URL refused')
   if (!url.hostname) throw proxyError(400, 'absolute http(s) url required')
   if (BLOCKED_HOSTNAME.test(url.hostname)) throw proxyError(403, 'blocked host')
   // An IP literal never reaches DNS in any meaningful sense, so judge it here —
@@ -214,10 +217,10 @@ export function requestOnce(url, headers, timeoutMs, signal) {
  * http://169.254.169.254/ is the whole SSRF attack, and a redirect to
  * file:// or data: is the other half of it.
  */
-export async function openRemote(startUrl, headers, timeoutMs, signal) {
-  let url = startUrl
+export async function openRemote(startUrl, headers, timeoutMs, signal, transport = requestOnce) {
+  let url = vetTarget(startUrl)
   for (let hop = 0; ; hop++) {
-    const res = await requestOnce(url, headers, timeoutMs, signal)
+    const res = await transport(url, headers, timeoutMs, signal)
     const status = res.statusCode ?? 0
     const location = res.headers.location
     if (status >= 300 && status < 400 && location) {

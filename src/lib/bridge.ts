@@ -1,3 +1,4 @@
+import { establishSession } from './bridge-session'
 import type { ResearchAction } from './research-actions'
 import type { AskHandlers } from './anthropic'
 import type { Blade, Panel } from '../store'
@@ -52,6 +53,26 @@ type Frame = {
   seconds?: number
   when?: string
   servers?: Array<string | { name?: string }>
+}
+
+export type PendingConfirmation = { actionRequestId: string; operation: string; parameterHash: string; parametersSummary: string; risk: string; expiresAt: number; confirmationState: string }
+let pendingConfirmation: PendingConfirmation | null = null
+let onConfirmation: ((value: PendingConfirmation | null) => void) | null = null
+export function watchConfirmation(fn: (value: PendingConfirmation | null) => void) { onConfirmation = fn; fn(pendingConfirmation); return () => { if (onConfirmation === fn) onConfirmation = null } }
+export function confirmPending(confirmed: boolean, source: 'ui' | 'voice' = 'ui'): boolean {
+  const p = pendingConfirmation
+  if (!p || !socket || socket.readyState !== WebSocket.OPEN) return false
+  pendingConfirmation = null; onConfirmation?.(null)
+  if (Date.now() >= p.expiresAt) return false
+  socket.send(JSON.stringify({ type: 'confirmation_response', actionRequestId: p.actionRequestId, operation: p.operation, parameterHash: p.parameterHash, confirmed, source }))
+  return true
+}
+export function confirmVoice(text: string): boolean {
+  if (!pendingConfirmation) return false
+  const value = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[.,!?]/g, '').trim()
+  if (/^(sim|confirmar|confirmo|sim pode enviar|sim pode continuar|pode continuar)$/.test(value)) return confirmPending(true, 'voice')
+  if (/^(nao|cancelar|cancele|cancelar acao)$/.test(value)) return confirmPending(false, 'voice')
+  return false
 }
 
 /** Every question gets an id so its answer can be told from anyone else's. */
@@ -194,6 +215,14 @@ function scheduleReconnect() {
  * warmBridge() call leaked another listener onto the same socket.
  */
 function dispatch(ws: WebSocket) {
+  ws.addEventListener('message', event => {
+    try {
+      const frame = JSON.parse(event.data)
+      if (socket !== ws || frame.type !== 'confirmation') return
+      pendingConfirmation = frame.confirmationState === 'pending' && frame.expiresAt > Date.now() ? frame : null
+      onConfirmation?.(pendingConfirmation)
+    } catch { /* Invalid frame cannot authorize an operation. */ }
+  })
   ws.addEventListener('message', (e: MessageEvent) => {
     let msg: Frame
     try {
@@ -278,7 +307,7 @@ function connect(): Promise<WebSocket> {
   bridgeDiagnostics.connection = 'conectando'
   Object.assign(bridgeDiagnostics, { backend: 'não informado', model: 'não informado', ollama: 'não verificado', revision: 'servidor sem identificação', instance: '—', startedAt: '—', sourceStatus: 'não informado' })
 
-  connecting = new Promise<WebSocket>((resolve, reject) => {
+  connecting = establishSession().then(() => new Promise<WebSocket>((resolve, reject) => {
     const ws = new WebSocket(BRIDGE_WS_URL)
     let settled = false
 
@@ -330,12 +359,13 @@ function connect(): Promise<WebSocket> {
         new Error(
           `Cannot reach the bridge at ${BRIDGE_WS_URL}. Either it is not ` +
             'running (start it with `npm start`), or this page is on a port it ' +
-            `refuses — it accepts localhost:5173-5199 and 4173-4199, and this ` +
+            `refuses — it accepts only configured local origins, and this ` +
             `page is on ${location.port || '80'}.`,
         ),
       )
     }
     ws.onclose = () => {
+      pendingConfirmation = null; onConfirmation?.(null)
       // A close before open is just a failed dial; after open it's a lost
       // session, and the two want different handling.
       settle(new Error('The bridge closed the connection.'))
@@ -347,7 +377,7 @@ function connect(): Promise<WebSocket> {
         scheduleReconnect()
       }
     }
-  })
+  })).catch(error => { connecting = null; throw error })
 
   return connecting
 }

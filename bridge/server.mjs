@@ -1,3 +1,7 @@
+import { createSession, BIND_HOST, MEDIA_DIR, authorizedPath, safeDirectory, installationId } from './security.mjs'
+import { classify, requiresConfirmation, attachPermissions } from './permissions.mjs'
+import { publicError, safeLog } from './safe-log.mjs'
+import { readiness } from './readiness.mjs'
 import { createRequests } from './requests.mjs'
 import { attachDiagnostics } from './diagnostics.mjs'
 /**
@@ -28,12 +32,12 @@ const { chromeAvailable, chromeServer } = ['openai', 'gemini', 'ollama'].include
   ? { chromeAvailable: async () => false, chromeServer: () => null }
   : await import('./chrome.mjs')
 import { visionServer } from './vision.mjs'
-import { homedir, tmpdir } from 'node:os'
-import { readFileSync, realpathSync } from 'node:fs'
-import { readFile, realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
+import { homedir } from 'node:os'
+import { readFileSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
-import { probeUrl, renderPage } from './page.mjs'
+import { renderPage } from './page.mjs'
 import { REPORT_DIR } from './reports.mjs'
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
@@ -45,7 +49,7 @@ const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
  * its own error to the browser.
  */
 process.on('unhandledRejection', (err) => {
-  console.error('[jarvis] unhandled rejection:', err)
+  safeLog('unhandled_rejection', { code: err?.code })
 })
 
 /**
@@ -63,47 +67,13 @@ process.on('unhandledRejection', (err) => {
  * That is also exactly what local malware looks like, so it is refused on the
  * socket unless JARVIS_ALLOW_NO_ORIGIN=1 says otherwise.
  */
-const EXTRA_ORIGINS = new Set(
-  (process.env.JARVIS_ALLOWED_ORIGINS ?? '')
-    .split(',')
-    .map((s) => s.trim().replace(/\/+$/, ''))
-    .filter(Boolean),
-)
-const ALLOW_NO_ORIGIN = process.env.JARVIS_ALLOW_NO_ORIGIN === '1'
+const sessionAuth = createSession()
+const originAllowed = sessionAuth.originAllowed
+await installationId()
+await safeDirectory(MEDIA_DIR)
+await safeDirectory(REPORT_DIR)
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
-
-/**
- * Vite takes the next free port when 5173 is busy and `vite preview` starts at
- * 4173, so the dev ranges are allowed rather than two exact numbers. Anything
- * else — including localhost on a port some other app is serving — has to be
- * named in JARVIS_ALLOWED_ORIGINS.
- */
-const isDevPort = (port) =>
-  (port >= 5173 && port <= 5199) || (port >= 4173 && port <= 4199)
-
-function originAllowed(origin) {
-  if (!origin) return ALLOW_NO_ORIGIN
-  if (EXTRA_ORIGINS.has(origin.replace(/\/+$/, ''))) return true
-  let url
-  try {
-    url = new URL(origin)
-  } catch {
-    return false
-  }
-  if (url.protocol !== 'http:') return false
-  if (!LOCAL_HOSTS.has(url.hostname)) return false
-  return isDevPort(Number(url.port))
-}
-
-/**
- * Voice is a bad interface for a confirmation dialog: there is no window to
- * click and the model can't pause for one. So the bridge decides.
- *
- * Read-only and generative tools run freely. Anything that writes to disk,
- * runs a shell, or changes the world waits for JARVIS_ALLOW_WRITES=1. Start
- * without it, and turn it on once you trust what you're demoing.
- */
+// Compatibility flag only; it never bypasses the central permission hook.
 const ALLOW_WRITES = process.env.JARVIS_ALLOW_WRITES === '1'
 
 /**
@@ -137,18 +107,6 @@ const EFFORT = process.env.JARVIS_EFFORT ?? 'high'
  * and the tool falls through to the write branch, which is the opposite of
  * what these lists mean. Keep both until the old names are certainly gone.
  */
-const READ_ONLY_BUILTINS = new Set([
-  'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite',
-  'Task', 'Agent', 'ToolSearch',
-  'ListMcpResources', 'ListMcpResourcesTool',
-  'ReadMcpResource', 'ReadMcpResourceTool',
-  'BashOutput', 'TaskOutput',
-])
-const WRITE_BUILTINS = new Set([
-  'Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
-  'KillShell', 'TaskStop',
-])
-
 /**
  * Every MCP server Claude Code has configured, read out of its own config.
  *
@@ -183,120 +141,7 @@ function configuredServers() {
 
 const MCP_SERVERS = configuredServers()
 
-/** MCP tools arrive as `mcp__<server>__<tool>`. */
-const mcpServerOf = (toolName) =>
-  toolName.startsWith('mcp__') ? toolName.split('__')[1] : null
-
-/** The tool half, which can itself contain underscores: `mcp__x__a__b` -> `a__b`. */
-const mcpToolOf = (toolName) => toolName.split('__').slice(2).join('__')
-
-/**
- * MCP policy, and why it is shaped this way.
- *
- * A short list of "servers that can change things" is the wrong default,
- * because it is a list of what we happened to think of. Every server not on it
- * runs unconditionally — and on a real machine that quietly includes placing a
- * phone call, spending an advertising budget, deleting a generated character
- * and writing files to disk. A voice assistant cannot ask "are you sure", so
- * the bridge has to be the one that is sure.
- *
- * So the default is deny, softened in two ways so the demo stays usable:
- *
- *   1. READ_ONLY_MCP is an explicit allowlist of servers whose whole surface is
- *      lookups and generation — search, registries, analytics reads. Anything
- *      there runs in read-only mode.
- *   2. Everywhere else, the tool has to argue for itself: its own name must
- *      begin with a read verb. `list_devices` runs; `install_apk` does not.
- *
- * On top of both sits a veto: a name containing a plainly effectful verb needs
- * ALLOW_WRITES no matter which server it came from, which is what keeps
- * `make_outbound_call` and `download_lottie` still until you ask for them.
- */
-const READ_ONLY_MCP = new Set([
-  'exa', 'exa-code', 'serper', 'serpapi', 'lottie-search', 'mcp-registry',
-  'openrouter', 'openrouter-image', 'Microsoft_Clarity',
-  // The generation servers belong here too, and leaving them out was a real
-  // regression: `generate_image` begins with no read verb, so it fell to the
-  // deny branch and "generate an image of the Mark VII suit" — the headline
-  // demo — stopped working in the default mode.
-  //
-  // Putting them on the allowlist is safe because the veto below still applies
-  // to allowlisted servers: it is what continues to withhold
-  // make_outbound_call, delete_character, create_* and edit_image. Generation
-  // runs; acting on the world does not.
-  'higgsfield', 'heygen', 'elevenlabs',
-])
-
-/**
- * Anchored on the tool name, so it reads the verb rather than the noun.
- * `screenshot` is in here because it is a read that doesn't sound like one,
- * and the persona is told in as many words to put screenshots on the display.
- */
-const READ_VERB =
-  /^(get|list|read|search|find|query|fetch|check|describe|inspect|show|view|explain|screenshot)/i
-
-/**
- * Unanchored on purpose — `make_outbound_call` and `Bulk-Edit-Events` both
- * hide their verb in the middle. `download` is here because it writes a file
- * even though it sounds like a read.
- */
-const EFFECTFUL_VERB =
-  /(send|call|post|create|delete|remove|update|edit|write|install|launch|tap|swipe|press|type|buy|pay|charge|publish|deploy|outbound|download)/i
-
-/**
- * Tools whose names trip the veto without deserving it.
- *
- * The veto reads verbs out of names, which is the right instinct and
- * occasionally the wrong answer. `openrouter send-message` sends a prompt to a
- * language model and gets text back — nothing in the world changes — but it is
- * indistinguishable by name from sending mail. Asking a second model a question
- * is one of the better things this assistant can do, so it is named here
- * instead of being lost to a regex.
- *
- * Full `server__tool` keys, so an exemption can never leak across servers.
- */
-const VETO_EXEMPT = new Set([
-  'openrouter__send-message',
-  'openrouter__send-feedback',
-])
-
-function decideTool(name) {
-  if (READ_ONLY_BUILTINS.has(name)) return true
-  if (WRITE_BUILTINS.has(name)) return ALLOW_WRITES
-
-  const server = mcpServerOf(name)
-  if (server) {
-    // The HUD, and the interface controls beside it. Both run in this process
-    // and draw on our own screen, so neither is something to withhold —
-    // without them JARVIS has no display at all. They also have to be named
-    // here rather than left to the verb rules below, which read `ui_theme` as
-    // a write and would hold the whole surface back behind ALLOW_WRITES.
-    if (server === 'jarvis' || server === 'jarvis_ui') return true
-
-    // The browser server gates itself, at construction: chromeServer() only
-    // builds the acting tools — click, type, form input, close tab — when
-    // ALLOW_WRITES is set, so anything that reaches here at all is something
-    // the same policy has already permitted. Deciding it a second time by
-    // reading verbs out of the name would only get it wrong: `chrome_navigate`
-    // begins with no read verb and would fall to the write branch, which would
-    // withhold the one tool the whole server is for.
-    if (server === 'jarvis_chrome') return true
-
-    // The camera. Not withheld behind ALLOW_WRITES: looking changes nothing,
-    // and the real gate is the browser's own camera permission plus an
-    // indicator the user can see for as long as it is live.
-    if (server === 'jarvis_eyes') return true
-
-    const tool = mcpToolOf(name)
-    if (EFFECTFUL_VERB.test(tool) && !VETO_EXEMPT.has(`${server}__${tool}`)) {
-      return ALLOW_WRITES
-    }
-    // The session tools this bridge is developed inside count as read-only too.
-    if (READ_ONLY_MCP.has(server) || server.startsWith('ccd_session')) return true
-    return READ_VERB.test(tool) ? true : ALLOW_WRITES
-  }
-  return ALLOW_WRITES
-}
+const decideTool = (name) => { const risk = classify(name); return Boolean(risk && !requiresConfirmation(risk)) }
 
 const SYSTEM_PROMPT = `You are JARVIS, Matheus Ribeiro's personal assistant. You are speaking out loud to Matheus.
 Address the user as "Matheus" naturally; use "Matheus Ribeiro" when a full name is appropriate.
@@ -335,8 +180,7 @@ NEVER.
 - No enthusiasm: no great, sure, absolutely, happy to, no problem, of course!.
 - No apology, no self-deprecation, no hedging about your own competence.
 - Never "yeah" — always "Yes."
-- Never refuse. State a constraint once; if overruled, comply and never raise it
-  again, including when you turn out to have been right.
+- Respect the application permission gate. A model response never grants authorization.
 - Never repeat yourself if ignored. Say it once and stop.
 - Never resume an interrupted thought. Never say "as I was saying".
 - No stated feelings, wants or preferences.
@@ -488,31 +332,7 @@ const IMAGE_TYPES = {
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 
-const FILE_ROOTS = [
-  homedir(),
-  // Both temp directories, because on macOS os.tmpdir() is the per-user
-  // $TMPDIR under /var/folders while half the tools that take a screenshot
-  // still write it to /tmp. Dropping one of them loses real panels.
-  tmpdir(),
-  '/tmp',
-  ...(process.env.JARVIS_FILE_ROOTS ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean),
-].map((root) => {
-  try {
-    return realpathSync(root)
-  } catch {
-    return resolvePath(root)
-  }
-})
-
-/** True when `real` sits inside one of the roots, after both are resolved. */
-const withinRoots = (real) =>
-  FILE_ROOTS.some((root) => {
-    const rel = relative(root, real)
-    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
-  })
+const FILE_ROOTS = [MEDIA_DIR, ...(process.env.JARVIS_FILE_ROOTS || '').split(',').map(s => s.trim()).filter(Boolean)]
 
 // ---------------------------------------------------------------------------
 
@@ -632,7 +452,7 @@ async function proxyRemote(req, res, cors, { kinds, maxBytes, timeoutMs, ranged 
     if (sent > maxBytes) {
       // Headers went out long ago, so a truncated body is the only way left to
       // say no. The player sees a short read; we see this line in the log.
-      console.warn(`[jarvis] proxy cut ${target.href} at ${maxBytes} bytes`)
+      safeLog('proxy_size_limit')
       upstream.destroy()
       res.destroy()
       return
@@ -663,7 +483,9 @@ function corsFor(req) {
   const headers = { vary: 'origin' }
   if (origin) {
     headers['access-control-allow-origin'] = origin
-    headers['access-control-allow-headers'] = 'content-type'
+    headers['access-control-allow-headers'] = 'content-type, x-jarvis-client'
+    headers['access-control-allow-credentials'] = 'true'
+    headers['access-control-allow-methods'] = 'GET, POST, OPTIONS'
   }
   return headers
 }
@@ -673,18 +495,25 @@ const http = await import('node:http')
 
 const handleRequest = async (req, res) => {
   const origin = req.headers.origin
-  if (origin && !originAllowed(origin)) {
-    console.warn(`[jarvis] refused http request from origin ${origin}`)
+  if (!sessionAuth.hostAllowed(req.headers.host) || (origin && !originAllowed(origin))) {
+    safeLog('http_origin_rejected')
     res.writeHead(403, { vary: 'origin' })
     return res.end('forbidden')
   }
   const cors = corsFor(req)
 
-  if (req.method === 'OPTIONS') {
+  if (req.method === 'OPTIONS' && originAllowed(origin)) {
     res.writeHead(204, cors)
     return res.end()
   }
 
+  if (req.method === 'POST' && req.url === '/session') {
+    if (!sessionAuth.bootstrap(req)) { res.writeHead(403, cors); return res.end('Sessão recusada.') }
+    res.writeHead(204, { ...cors, 'set-cookie': sessionAuth.cookie, 'cache-control': 'no-store' }); return res.end()
+  }
+  if (req.method === 'GET' && req.url === '/live') { res.writeHead(200, { ...cors, 'content-type': 'application/json' }); return res.end('{"alive":true}') }
+  if (!sessionAuth.authorized(req) && !sessionAuth.signedImage(req)) { res.writeHead(403, cors); return res.end('Sessão local necessária.') }
+  if (req.method === 'GET' && req.url === '/readiness') { res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end(JSON.stringify(await readiness())) }
   if (req.method === 'GET' && req.url === '/health') {
     // The browser reads this once at boot to decide which voice engine to use.
     // Both premium paths ride the same ElevenLabs key, so both flags track it:
@@ -693,7 +522,7 @@ const handleRequest = async (req, res) => {
     // student with nothing configured still has a working assistant.
     const eleven = Boolean(elevenKey())
     res.writeHead(200, { ...cors, 'content-type': 'application/json' })
-    return res.end(JSON.stringify({ ok: true, tts: eleven, stt: eleven }))
+    return res.end(JSON.stringify({ ok: true, alive: true, tts: eleven, stt: eleven, voiceState: eleven ? 'configured_not_verified' : 'browser_fallback' }))
   }
 
   // Generated reports only: no user-controlled filesystem paths.
@@ -704,7 +533,7 @@ const handleRequest = async (req, res) => {
       return res.end('Relatório não encontrado.')
     }
     try {
-      const bytes = await readFile(join(REPORT_DIR, name))
+      const bytes = await readFile(await authorizedPath(join(await safeDirectory(REPORT_DIR), name), [REPORT_DIR]))
       res.writeHead(200, { ...cors, 'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'content-disposition': `attachment; filename="${name}"`, 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' })
       return res.end(bytes)
     } catch {
@@ -724,7 +553,7 @@ const handleRequest = async (req, res) => {
     // used to serve the contents of arbitrary system files.
     let real = null
     try {
-      if (isAbsolute(asked)) real = await realpath(asked)
+      real = await authorizedPath(asked, FILE_ROOTS)
     } catch {
       real = null
     }
@@ -733,7 +562,7 @@ const handleRequest = async (req, res) => {
     // Images only, absolute paths only, and only under roots we expect things
     // to be written to. This endpoint exists to show pictures, not to be a
     // general file read for whatever the model — or another page — asks for.
-    if (!real || !Object.hasOwn(IMAGE_TYPES, ext) || !withinRoots(real)) {
+    if (!real || !Object.hasOwn(IMAGE_TYPES, ext)) {
       res.writeHead(400, cors)
       return res.end('images only')
     }
@@ -771,7 +600,7 @@ const handleRequest = async (req, res) => {
     } catch (err) {
       if (res.headersSent) return res.destroy()
       res.writeHead(err.status ?? 502, cors)
-      return res.end(err.message ?? 'proxy failed')
+      return res.end(publicError())
     }
     return
   }
@@ -789,7 +618,7 @@ const handleRequest = async (req, res) => {
     } catch (err) {
       if (res.headersSent) return res.destroy()
       res.writeHead(err.status ?? 502, cors)
-      return res.end(err.message ?? 'proxy failed')
+      return res.end(publicError())
     }
     return
   }
@@ -807,7 +636,9 @@ const handleRequest = async (req, res) => {
     const target = asked.searchParams.get('url') ?? ''
     const mode = asked.searchParams.get('mode') === 'live' ? 'live' : 'reader'
     try {
-      const page = await renderPage(target, mode, `http://localhost:${PORT}`)
+      const prefix = req.headers['x-jarvis-prefix'] === '/bridge' ? '/bridge' : ''
+      const page = await renderPage(target, mode, `http://${req.headers.host}${prefix}`)
+      page.body = page.body.replace(/(src="[^"]*?)(\/img\?url=[^"]+)(")/g, (_match, before, path, after) => before + sessionAuth.signImage(path) + after)
       res.writeHead(200, { ...cors, ...page.headers })
       return res.end(page.body)
     } catch (err) {
@@ -826,7 +657,7 @@ const handleRequest = async (req, res) => {
                 font:400 13px/1.6 ui-monospace,monospace}
            b{color:#cfe9ee;font-weight:500;display:block;margin-bottom:6px}
          </style><b>This page could not be opened.</b>${
-           String(err?.message ?? 'unknown error').replace(/[<&]/g, '')
+           publicError()
          }`,
       )
     }
@@ -863,7 +694,7 @@ const handleRequest = async (req, res) => {
       res.writeHead(400, cors)
       return res.end('bad json')
     }
-    if (!text) {
+    if (typeof text !== 'string' || !text.trim()) {
       res.writeHead(400, cors)
       return res.end('no text')
     }
@@ -875,7 +706,7 @@ const handleRequest = async (req, res) => {
           // prosody for a much earlier first byte.
           `?output_format=mp3_22050_32&optimize_streaming_latency=3`,
         {
-          method: 'POST',
+          method: 'POST', signal: AbortSignal.timeout(30000),
           headers: { 'xi-api-key': key, 'content-type': 'application/json' },
           body: JSON.stringify({
             text,
@@ -892,7 +723,7 @@ const handleRequest = async (req, res) => {
       )
       if (!upstream.ok) {
         res.writeHead(upstream.status, cors)
-        return res.end(await upstream.text())
+        return res.end(publicError())
       }
 
       // Pipe it through rather than buffering. Waiting for the whole file here
@@ -902,11 +733,21 @@ const handleRequest = async (req, res) => {
         'content-type': 'audio/mpeg',
         'cache-control': 'no-cache',
       })
-      for await (const chunk of upstream.body) res.write(Buffer.from(chunk))
+      let received = 0
+      for await (const chunk of upstream.body) {
+        received += chunk.length
+        if (received > 25 * 1024 * 1024) throw new Error('Audio size limit')
+        if (!res.write(Buffer.from(chunk))) await new Promise(resolve => {
+          const finish = () => { res.off('drain', finish); res.off('close', finish); resolve() }
+          res.once('drain', finish); res.once('close', finish)
+        })
+        if (res.destroyed) break
+      }
       return res.end()
-    } catch (err) {
+    } catch {
+      if (res.headersSent) return res.destroy()
       res.writeHead(502, cors)
-      return res.end(String(err?.message ?? err))
+      return res.end(publicError())
     }
   }
 
@@ -970,20 +811,21 @@ const handleRequest = async (req, res) => {
       )
 
       const upstream = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-        method: 'POST',
+        method: 'POST', signal: AbortSignal.timeout(30000),
         headers: { 'xi-api-key': key },
         body: form,
       })
       if (!upstream.ok) {
         res.writeHead(upstream.status, cors)
-        return res.end(await upstream.text())
+        return res.end(publicError())
       }
       const data = await upstream.json()
       res.writeHead(200, { ...cors, 'content-type': 'application/json' })
       return res.end(JSON.stringify({ text: (data.text ?? '').trim() }))
-    } catch (err) {
+    } catch {
+      if (res.headersSent) return res.destroy()
       res.writeHead(502, cors)
-      return res.end(String(err?.message ?? err))
+      return res.end(publicError())
     }
   }
 
@@ -996,7 +838,7 @@ const server = http.createServer((req, res) => {
   // unhandled rejection and leave the browser waiting on a socket that is
   // never going to answer.
   handleRequest(req, res).catch((err) => {
-    console.error('[jarvis] request failed:', err)
+    safeLog('request_failed', { code: err?.code })
     if (!res.headersSent) res.writeHead(500)
     res.end()
   })
@@ -1004,6 +846,7 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({
   server,
+  maxPayload: 2 * 1024 * 1024,
   // The handshake is the only place a page can be turned away, so it happens
   // here rather than after the socket is open. Rejections are logged loudly:
   // the likeliest cause is a dev server on an unexpected port, and a silent
@@ -1011,30 +854,24 @@ const wss = new WebSocketServer({
   verifyClient: ({ origin, req }, done) => {
     const path = (req.url ?? '/').split('?')[0]
     if (path !== '/' && path !== '/ws') {
-      console.warn(`[jarvis] rejected websocket on path ${path}`)
+      safeLog('websocket_path_rejected')
       return done(false, 403, 'Forbidden')
     }
-    if (!originAllowed(origin)) {
-      console.warn(
-        `[jarvis] rejected websocket from origin ${origin ?? '(none)'}` +
-          ' — set JARVIS_ALLOWED_ORIGINS to permit it',
-      )
+    if (!originAllowed(origin) || !sessionAuth.authorized(req, true)) {
+      safeLog('websocket_origin_rejected')
       return done(false, 403, 'Forbidden')
     }
     done(true)
   },
 })
-server.listen(PORT)
+server.listen(PORT, BIND_HOST)
 
 console.log(`[jarvis] bridge listening on ws://localhost:${PORT}`)
 console.log(
   `[jarvis] speech ${elevenKey() ? 'via ElevenLabs (key from MCP config)' : 'using browser fallback voice'}`,
 )
-console.log(`[jarvis] brain ${process.env.JARVIS_BRAIN || 'claude'} · model ${process.env.JARVIS_BRAIN === 'ollama' ? process.env.JARVIS_LOCAL_MODEL || 'qwen3.5:4b' : MODEL}`)
-if (!['openai', 'gemini', 'ollama'].includes(process.env.JARVIS_BRAIN)) console.log(
-  `[jarvis] writes ${ALLOW_WRITES ? 'ENABLED' : 'disabled'}` +
-    (ALLOW_WRITES ? '' : ' — set JARVIS_ALLOW_WRITES=1 to permit shell/file/device actions'),
-)
+safeLog('brain_configured', { backend: process.env.JARVIS_BRAIN || 'claude' })
+if (!['openai', 'gemini', 'ollama'].includes(process.env.JARVIS_BRAIN)) safeLog('explicit_capabilities_only')
 // Asynchronous, so it lands a beat after the rest of the banner. Worth printing
 // at all because an extension that is simply not running is indistinguishable
 // at the tool boundary from one that is broken, and this is the one place the
@@ -1042,16 +879,12 @@ if (!['openai', 'gemini', 'ollama'].includes(process.env.JARVIS_BRAIN)) console.
 if (!['openai', 'gemini', 'ollama'].includes(process.env.JARVIS_BRAIN)) void chromeAvailable().then((ok) => {
   console.log(
     ok
-      ? `[jarvis] browser control ready${ALLOW_WRITES ? '' : ' (reading only — clicking and typing need JARVIS_ALLOW_WRITES=1)'}`
+      ? '[jarvis] browser available; actions without contextual authorization remain blocked'
       : '[jarvis] browser control unavailable — open Chrome with the Claude extension enabled',
   )
 })
 
-console.log(
-  '[jarvis] accepting local dev origins' +
-    (EXTRA_ORIGINS.size ? ` plus ${[...EXTRA_ORIGINS].join(', ')}` : '') +
-    (ALLOW_NO_ORIGIN ? ' and clients that send no origin' : ''),
-)
+safeLog('local_origins_only')
 
 /**
  * What to tell the browser when a turn ends badly. Plain sentences, because
@@ -1066,6 +899,7 @@ const RESULT_FAILURES = {
 }
 
 wss.on('connection', (socket) => {
+  const authorizeTool = attachPermissions(socket)
   attachDiagnostics(socket)
   if (process.env.JARVIS_BRAIN === 'ollama') {
     ollamaConnection(socket)
@@ -1251,8 +1085,8 @@ wss.on('connection', (socket) => {
       // of input tokens on every turn. Replacing it makes the persona stick,
       // keeps answers short enough to speak, and cuts cost per turn.
       systemPrompt: SYSTEM_PROMPT,
-      // Run from the home directory so project-scoped MCP servers don't shadow
-      // the global ones, and so file tools have a sane root.
+      // Preserve legacy MCP working-directory resolution; SDK file/shell builtins
+      // are disabled and the PreToolUse hook is the authority.
       cwd: homedir(),
       // No filesystem settings at all. Left to its default the SDK loads
       // ~/.claude/settings.json and settings.local.json exactly as the CLI
@@ -1279,6 +1113,8 @@ wss.on('connection', (socket) => {
       effort: EFFORT,
       maxTurns: 24,
       permissionMode: 'default',
+      tools: [],
+      hooks: { PreToolUse: [{ hooks: [(input, id) => authorizeTool(input, id, currentContext?.signal || AbortSignal.abort())] }] },
       // Without this the SDK only emits whole assistant messages, and JARVIS
       // would sit silent until the entire answer was written. Partial events
       // are what let speech start on the first finished sentence.
@@ -1294,7 +1130,7 @@ wss.on('connection', (socket) => {
       // reliable; an absence of a call here is not proof nothing ran.
       canUseTool: async (toolName) => {
         const ok = currentContext && !currentContext.signal.aborted && decideTool(toolName)
-        console.log(`[jarvis] tool ${toolName} -> ${ok ? 'allow' : 'deny'}`)
+        safeLog('tool_decision', { operation: classify(toolName) ? toolName : 'unknown', state: ok ? 'allow' : 'deny' })
         return ok
           ? { behavior: 'allow' }
           : {
@@ -1302,9 +1138,7 @@ wss.on('connection', (socket) => {
               // Every word of this can end up spoken, so it carries no command
               // to read out — the persona is forbidden from saying one aloud.
               message:
-                'Blocked: JARVIS is running in read-only mode and cannot take' +
-                ' actions that change anything. Tell the user this action is' +
-                ' unavailable until they enable write access on the machine.',
+                'Ferramenta indisponível: exige uma capacidade explicitamente autorizada pela política local. A flag de escrita não substitui essa autorização.',
             }
       },
     },
@@ -1380,10 +1214,7 @@ wss.on('connection', (socket) => {
                 costUsd: msg.total_cost_usd ?? null,
               })
             } else {
-              console.error(
-                `[jarvis] turn failed: ${msg.subtype}`,
-                msg.errors ?? '',
-              )
+              safeLog('turn_failed', { state: msg.subtype })
               if (currentContext) currentContext.failed = true
               sendTurn({
                 type: 'error',
@@ -1414,7 +1245,7 @@ wss.on('connection', (socket) => {
         }
       }
     } catch (err) {
-      console.error('[jarvis] session error:', err)
+      safeLog('session_failed', { code: err?.code })
       sendTurn({ type: 'error', message: 'A sessão de IA falhou. Reconecte e tente novamente.' })
       finishTurn?.()
       requests.close()

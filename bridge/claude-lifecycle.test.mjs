@@ -23,7 +23,7 @@ test('Claude socket handler queues, cancels, drains and recovers without assigni
   output.interrupt = async () => { interrupts++ }
   // Exercise the actual connection handler with the SDK and OS boundaries mocked.
   const dependencies = {
-    wss, createRequests, attachDiagnostics() {}, process: { env: {} }, console: { log() {}, error() {} },
+    MEDIA_DIR: '.', attachPermissions: () => async () => ({}), publicError: () => 'failed', safeLog() {}, wss, createRequests, attachDiagnostics() {}, process: { env: {} }, console: { log() {}, error() {} },
     query(options) { prompt = options.prompt; return output }, MCP_SERVERS: {},
     displayServer() {}, uiServer() {}, chromeServer() {}, visionServer() {},
     homedir: () => '.', SYSTEM_PROMPT: 'test', MODEL: 'test', EFFORT: 'low',

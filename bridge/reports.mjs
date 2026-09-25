@@ -1,5 +1,7 @@
+import { safeDirectory, safeUrl } from './security.mjs'
+import { assertCapability } from './permissions.mjs'
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, ExternalHyperlink, Footer, PageNumber } from 'docx'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -8,6 +10,8 @@ export const REPORT_DIR = fileURLToPath(new URL('../reports/', import.meta.url))
 
 export async function writeReport(data, directory = REPORT_DIR) {
   if (!data || typeof data.id !== 'string' || !data.id || typeof data.actionRequestId !== 'string' || !data.actionRequestId || typeof data.query !== 'string' || !data.query.trim() || typeof data.summary !== 'string' || !data.summary.trim() || !Array.isArray(data.sources) || !data.sources.length) throw new Error('Relatório exige uma pesquisa estruturada e uma operação identificada.')
+  assertCapability('report')
+  for (const source of data.sources) safeUrl(source.url)
   const paragraph = (text, options = {}) => new Paragraph({ text, spacing: { after: 160 }, ...options })
   const title = data.query.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
   const children = [
@@ -34,7 +38,7 @@ export async function writeReport(data, directory = REPORT_DIR) {
     sections: [{ properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 } } },
       footers: { default: new Footer({ children: [new Paragraph({ children: [new TextRun('JARVIS | Matheus Ribeiro | '), new TextRun({ children: [PageNumber.CURRENT] })] })] }) }, children }],
   })
-  await mkdir(directory, { recursive: true })
+  directory = await safeDirectory(directory)
   const artifactId = randomUUID()
   const name = `relatorio-${artifactId}.docx`
   const path = join(directory, name)

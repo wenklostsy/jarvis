@@ -28,3 +28,6 @@ reports/
 
 # Copied out of node_modules by scripts/start.mjs — 34MB of build output.
 public/mediapipe/
+
+# Local installation identity and caches
+.jarvis/
